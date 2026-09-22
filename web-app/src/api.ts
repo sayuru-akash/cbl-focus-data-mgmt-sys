@@ -20,11 +20,41 @@ export type Product = {
   unit: string;
   stock: number;
   minimum: number;
-  lots: { id: string; remaining: number; received_qty: number; costPrice: number | null; mrp: number | null; received: string }[];
+  lots: {
+    id: string;
+    remaining: number;
+    received_qty: number;
+    costPrice: number | null;
+    mrp: number | null;
+    received: string;
+    purchase_id?: string | null;
+  }[];
 };
-export type Item = { productId: string; quantity: number; sourceLine?: number; mrp?: number | null; sellingPrice?: number | null };
-export type PurchaseLine = { productId: string; newProduct?: {sku:string;name:string;unit:string}; quantity:number; costPrice:number|null; mrp:number|null; billLine?:number };
-export type Purchase = { id?:string; number:string; supplier:string; received:string; status?:"draft"|"received"; lines:PurchaseLine[]; note:string; created?:string };
+export type Item = {
+  productId: string;
+  quantity: number;
+  sourceLine?: number;
+  mrp?: number | null;
+  sellingPrice?: number | null;
+};
+export type PurchaseLine = {
+  productId: string;
+  newProduct?: { sku: string; name: string; unit: string };
+  quantity: number;
+  costPrice: number | null;
+  mrp: number | null;
+  billLine?: number;
+};
+export type Purchase = {
+  id?: string;
+  number: string;
+  supplier: string;
+  received: string;
+  status?: "draft" | "received";
+  lines: PurchaseLine[];
+  note: string;
+  created?: string;
+};
 export type Bill = {
   id: string;
   filename: string;

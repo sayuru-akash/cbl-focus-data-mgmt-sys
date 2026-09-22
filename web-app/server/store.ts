@@ -42,33 +42,107 @@ export class Store {
  CREATE TABLE IF NOT EXISTS customers(id TEXT PRIMARY KEY,outlet_id TEXT NOT NULL UNIQUE,name TEXT NOT NULL,address TEXT NOT NULL,phone TEXT NOT NULL,created TEXT NOT NULL,last_seen TEXT NOT NULL);
  `);
     this.inventory = new Inventory(this);
-    const columns = this.db.query("PRAGMA table_info(bills)").all() as { name: string }[];
-    if (!columns.some((column) => column.name === "receipt")) this.db.exec("ALTER TABLE bills ADD COLUMN receipt TEXT");
-    if (!columns.some((column) => column.name === "customer_id")) this.db.exec("ALTER TABLE bills ADD COLUMN customer_id TEXT REFERENCES customers(id)");
+    const columns = this.db.query("PRAGMA table_info(bills)").all() as {
+      name: string;
+    }[];
+    if (!columns.some((column) => column.name === "receipt"))
+      this.db.exec("ALTER TABLE bills ADD COLUMN receipt TEXT");
+    if (!columns.some((column) => column.name === "customer_id"))
+      this.db.exec(
+        "ALTER TABLE bills ADD COLUMN customer_id TEXT REFERENCES customers(id)",
+      );
     this.db.transaction(() => {
-      const pending = this.db.query("SELECT id FROM bills WHERE receipt IS NULL").all() as { id: string }[];
+      const pending = this.db
+        .query("SELECT id FROM bills WHERE receipt IS NULL")
+        .all() as { id: string }[];
       for (const bill of pending) this.extractReceipt(bill.id);
     })();
   }
   private extractReceipt(id: string) {
     const bill = this.db.query("SELECT * FROM bills WHERE id=?").get(id) as any;
-    const decoded = bill.mime === "application/pdf" ? { preview: "", uncertain: false } : decodePrint(new Uint8Array(bill.raw));
+    const decoded =
+      bill.mime === "application/pdf"
+        ? { preview: "", uncertain: false }
+        : decodePrint(new Uint8Array(bill.raw));
     const receipt = parseReceipt(decoded.preview, decoded.uncertain);
-    let customerId=bill.customer_id || null;
-    if(receipt?.outletId) {
-      const existing=this.db.query("SELECT id,last_seen FROM customers WHERE outlet_id=?").get(receipt.outletId) as any;
-      customerId=existing?.id || randomUUID();
-      if(!existing)this.db.query("INSERT INTO customers VALUES (?,?,?,?,?,?,?)").run(customerId,receipt.outletId,receipt.shop,receipt.customerAddress,receipt.customerPhone,bill.received,bill.received);
-      else if(existing.last_seen<=bill.received)this.db.query("UPDATE customers SET name=?,address=?,phone=?,last_seen=? WHERE id=?").run(receipt.shop,receipt.customerAddress,receipt.customerPhone,bill.received,customerId);
+    let customerId = bill.customer_id || null;
+    if (receipt?.outletId) {
+      const existing = this.db
+        .query("SELECT id,last_seen FROM customers WHERE outlet_id=?")
+        .get(receipt.outletId) as any;
+      customerId = existing?.id || randomUUID();
+      if (!existing)
+        this.db
+          .query("INSERT INTO customers VALUES (?,?,?,?,?,?,?)")
+          .run(
+            customerId,
+            receipt.outletId,
+            receipt.shop,
+            receipt.customerAddress,
+            receipt.customerPhone,
+            bill.received,
+            bill.received,
+          );
+      else if (existing.last_seen <= bill.received)
+        this.db
+          .query(
+            "UPDATE customers SET name=?,address=?,phone=?,last_seen=? WHERE id=?",
+          )
+          .run(
+            receipt.shop,
+            receipt.customerAddress,
+            receipt.customerPhone,
+            bill.received,
+            customerId,
+          );
     }
-    let number = bill.number, shop = bill.shop, items = bill.items;
-    if (receipt && bill.status === "pending" && !number && !shop && items === "[]" && !bill.note) {
+    let number = bill.number,
+      shop = bill.shop,
+      items = bill.items;
+    if (
+      receipt &&
+      bill.status === "pending" &&
+      !number &&
+      !shop &&
+      items === "[]" &&
+      !bill.note
+    ) {
       shop = receipt.shop;
-      if (this.db.query("SELECT id FROM bills WHERE number=? AND status<>'rejected' AND id<>?").get(receipt.number, id)) receipt.warnings.push("This invoice number already exists. Check for a reprint.");
+      if (
+        this.db
+          .query(
+            "SELECT id FROM bills WHERE number=? AND status<>'rejected' AND id<>?",
+          )
+          .get(receipt.number, id)
+      )
+        receipt.warnings.push(
+          "This invoice number already exists. Check for a reprint.",
+        );
       else number = receipt.number;
-      if (!receipt.warnings.length) items = JSON.stringify(receipt.items.map((item, sourceLine) => ({ productId: this.inventory.match(item.name,item.unit), quantity: item.quantity, sourceLine, mrp:item.mrp ?? null, sellingPrice:item.rate })));
+      if (!receipt.warnings.length)
+        items = JSON.stringify(
+          receipt.items.map((item, sourceLine) => ({
+            productId: this.inventory.match(item.name, item.unit),
+            quantity: item.quantity,
+            sourceLine,
+            mrp: item.mrp ?? null,
+            sellingPrice: item.rate,
+          })),
+        );
     }
-    this.db.query("UPDATE bills SET preview=?,receipt=?,number=?,shop=?,items=?,customer_id=? WHERE id=?").run(decoded.preview, JSON.stringify(receipt), number, shop, items,customerId,id);
+    this.db
+      .query(
+        "UPDATE bills SET preview=?,receipt=?,number=?,shop=?,items=?,customer_id=? WHERE id=?",
+      )
+      .run(
+        decoded.preview,
+        JSON.stringify(receipt),
+        number,
+        shop,
+        items,
+        customerId,
+        id,
+      );
   }
   setting(key: string) {
     return (
@@ -102,18 +176,28 @@ export class Store {
   }
   saveProduct(input: any, id?: string) {
     let sku = string(input.sku || "", 80).toUpperCase();
-    const
-      name = string(input.name),
+    const name = string(input.name),
       unit = string(input.unit, 30) || "pcs",
       minimum = units(input.minimum ?? 0);
     if (!name) fail("Name is required");
     const stock = units(input.stock ?? 0);
     return this.db.transaction(() => {
       if (!sku) sku = id ? this.product(id)?.sku : this.inventory.nextSku();
-      if (this.db.query("SELECT id FROM products WHERE upper(sku)=? AND id<>?").get(sku,id || "")) fail("This SKU already exists");
+      if (
+        this.db
+          .query("SELECT id FROM products WHERE upper(sku)=? AND id<>?")
+          .get(sku, id || "")
+      )
+        fail("This SKU already exists");
       if (id) {
         if (!this.product(id)) throw new AppError("Item not found", 404);
-        if (this.product(id).unit.toUpperCase() !== unit.toUpperCase() && this.db.query("SELECT id FROM movements WHERE product_id=? LIMIT 1").get(id)) fail("An item with stock history keeps its original unit");
+        if (
+          this.product(id).unit.toUpperCase() !== unit.toUpperCase() &&
+          this.db
+            .query("SELECT id FROM movements WHERE product_id=? LIMIT 1")
+            .get(id)
+        )
+          fail("An item with stock history keeps its original unit");
         this.db
           .query("UPDATE products SET sku=?,name=?,unit=?,minimum=? WHERE id=?")
           .run(sku, name, unit, minimum, id);
@@ -124,7 +208,15 @@ export class Store {
             "INSERT INTO products(id,sku,name,unit,stock,minimum) VALUES (?,?,?,?,?,?)",
           )
           .run(id, sku, name, unit, stock, minimum);
-        if (stock) { this.movement(id, stock, "Opening stock");this.inventory.addLot(id,stock,cents(input.costPrice),cents(input.mrp)); }
+        if (stock) {
+          this.movement(id, stock, "Opening stock");
+          this.inventory.addLot(
+            id,
+            stock,
+            cents(input.costPrice),
+            cents(input.mrp),
+          );
+        }
       }
       return id;
     })();
@@ -148,7 +240,7 @@ export class Store {
       const p = this.product(id);
       if (!p) throw new AppError("Item not found", 404);
       if (p.stock + delta < 0) fail("Not enough stock");
-      this.inventory.adjustLots(id,delta,input);
+      this.inventory.adjustLots(id, delta, input);
       this.db
         .query("UPDATE products SET stock=stock+? WHERE id=?")
         .run(delta, id);
@@ -182,20 +274,21 @@ export class Store {
           .decode(raw)
           .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "")
           .slice(0, 100000);
-    this.db.transaction(() => { this.db
-      .query(
-        "INSERT INTO bills(id,hash,filename,mime,raw,preview,source,received) VALUES (?,?,?,?,?,?,?,?)",
-      )
-      .run(
-        id,
-        hash,
-        string(filename, 200) || "Print job",
-        isPdf ? "application/pdf" : "application/octet-stream",
-        raw,
-        preview,
-        string(source, 80),
-        new Date().toISOString(),
-      );
+    this.db.transaction(() => {
+      this.db
+        .query(
+          "INSERT INTO bills(id,hash,filename,mime,raw,preview,source,received) VALUES (?,?,?,?,?,?,?,?)",
+        )
+        .run(
+          id,
+          hash,
+          string(filename, 200) || "Print job",
+          isPdf ? "application/pdf" : "application/octet-stream",
+          raw,
+          preview,
+          string(source, 80),
+          new Date().toISOString(),
+        );
       this.extractReceipt(id);
     })();
     return { id, duplicate: false };
@@ -206,12 +299,20 @@ export class Store {
         "SELECT id,filename,mime,source,received,status,number,shop,items,note,decided,receipt FROM bills ORDER BY received DESC",
       )
       .all()
-      .map((r: any) => ({ ...r, items: JSON.parse(r.items), receipt: JSON.parse(r.receipt || "null") }));
+      .map((r: any) => ({
+        ...r,
+        items: JSON.parse(r.items),
+        receipt: JSON.parse(r.receipt || "null"),
+      }));
   }
   bill(id: string) {
     const r = this.db.query("SELECT * FROM bills WHERE id=?").get(id) as any;
     if (!r) throw new AppError("Bill not found", 404);
-    return { ...r, items: JSON.parse(r.items), receipt: JSON.parse(r.receipt || "null") };
+    return {
+      ...r,
+      items: JSON.parse(r.items),
+      receipt: JSON.parse(r.receipt || "null"),
+    };
   }
   saveBill(id: string, input: any) {
     const number = string(input.number, 100),
@@ -223,13 +324,30 @@ export class Store {
     const items = input.items.map((item: any) => {
       const productId = string(item.productId, 50);
       const quantity = units(item.quantity);
-      if (productId && !this.product(productId)) fail("Choose an active stock item");
+      if (productId && !this.product(productId))
+        fail("Choose an active stock item");
       if (!quantity) fail("Quantity must be greater than zero");
       const sourceLine = item.sourceLine;
-      if (sourceLine !== undefined && (!Number.isInteger(sourceLine) || sourceLine < 0 || !originalBill.receipt?.items[sourceLine])) fail("Invalid source item");
-      const source = sourceLine === undefined ? null : originalBill.receipt.items[sourceLine];
-      const mrp = cents(source?.mrp ?? item.mrp), sellingPrice = cents(source?.rate ?? item.sellingPrice);
-      return { productId, quantity: quantity / 1000, mrp:mrp===null?null:mrp/100, sellingPrice:sellingPrice===null?null:sellingPrice/100, ...(sourceLine === undefined ? {} : { sourceLine }) };
+      if (
+        sourceLine !== undefined &&
+        (!Number.isInteger(sourceLine) ||
+          sourceLine < 0 ||
+          !originalBill.receipt?.items[sourceLine])
+      )
+        fail("Invalid source item");
+      const source =
+        sourceLine === undefined
+          ? null
+          : originalBill.receipt.items[sourceLine];
+      const mrp = cents(source?.mrp ?? item.mrp),
+        sellingPrice = cents(source?.rate ?? item.sellingPrice);
+      return {
+        productId,
+        quantity: quantity / 1000,
+        mrp: mrp === null ? null : mrp / 100,
+        sellingPrice: sellingPrice === null ? null : sellingPrice / 100,
+        ...(sourceLine === undefined ? {} : { sourceLine }),
+      };
     });
     this.db.transaction(() => {
       if (this.bill(id).status !== "pending")

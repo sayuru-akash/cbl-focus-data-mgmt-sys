@@ -23,9 +23,9 @@ Open http://localhost:4310 on the server computer and create the workspace passw
 6. Print just one bill. Wait until the receiver's byte count stops increasing, then tap **Save bill**. A disconnected stream is also saved automatically.
 7. The original appears under **Bills**. Review its contents before mapping inventory items and accepting it.
 
-The photo supplied by the user shows SPP-R310 with a Bluetooth MAC address and 3/4-inch print options. The user confirmed other paired phones appear in the same picker. This supports testing a standard Bluetooth Serial Port Profile receiver. It does **not** prove the app's printer SDK will accept the bridge; that needs the physical-device test.
+The v0.4 receiver has captured and uploaded a real CBL bill. CBL uses the standard Bluetooth Serial Port Profile and checks the device name before selecting its printer driver. Use the phone's SPP-R310 entry in the picker.
 
-The APK listens on the standard SPP UUID `00001101-0000-1000-8000-00805f9b34fb`. Its compatibility listener accepts only paired devices and retains a secure-listener option. Version 0.4 provides the SPP-R310 model, PC437 character set, manufacturer/completion, and ready-status replies required by the inspected Bixolon driver. The phone's advertised name can be set with one button; its Bluetooth hardware address is unchanged. This is a limited virtual printer profile, with physical CBL print delivery still awaiting verification.
+The APK listens on the standard SPP UUID `00001101-0000-1000-8000-00805f9b34fb`. Its compatibility listener accepts only paired devices and retains a secure-listener option. Version 0.4 provides the SPP-R310 model, PC437 character set, manufacturer/completion, and ready-status replies required by the inspected Bixolon driver. The phone's advertised name can be set with one button; its Bluetooth hardware address is unchanged. Keep the receiver running. It listens again after each disconnect and retries queued uploads every 20 seconds. This is a limited virtual printer profile; additional CBL print formats still require verification.
 
 ### Capture boundaries
 
@@ -59,10 +59,17 @@ Use `bun scripts/test-package-receiver.ts` to check the receiver in isolation. D
 - Password hashing, expiring HTTP-only sessions, ingest-only token, same-origin browser mutation checks.
 - Local persistence in `web-app/data/focus.sqlite`, with SQLite WAL enabled.
 - Responsive React interface, with no seeded business data.
+- Automatic extraction of the verified CBL invoice format: serial number, date, outlet ID, customer/address, distributor, print metadata, item quantities, selling rates, MRP and totals. Customers link by outlet ID; each bill keeps its own historical snapshot.
+- Stock > Stock in supports multi-item delivery drafts and one-time receiving, including existing products and new products with manual or automatic internal SKUs.
+- Received batches retain cost and MRP separately. Sales consume the oldest matching-MRP batches, with recorded allocations and no automatic fallback to a different MRP.
+- Accepting a bill checks missing products, units and shortages, and offers stock receiving. Pending bills and failed acceptance never reduce stock.
+- Explicitly accepted product mappings are remembered by printed product name and unit. CBL's sample print contains no SKU codes, so internal SKUs are not presented as CBL SKUs.
 
-## Pending real data
+## Stock and print rules
 
-No real CBL print stream has been verified yet. Automatic extraction of products, prices, discounts, returns, free issues, units, totals, shop details, and invoice identifiers is deliberately not guessed. Raw graphics may require decoding or OCR. A saved capture is the next input for that work. Similar reprints whose bytes differ are additionally caught by bill number during review.
+Enter received quantities in each product's stock unit. Changing the unit after stock history exists is blocked. Unknown cost/MRP remains blank rather than being guessed; batches without a known MRP cannot satisfy a sale with a specified MRP. Posted stock bills and used batch prices remain fixed. Opening-balance batches can be priced before use.
+
+The original bytes and decoded text remain stored with each bill. Exact retries deduplicate; differing reprints with an existing active invoice number are retained for review and cannot be accepted under that same number twice. Unexpected layouts, multiple copies, nonzero returns, free-issue sections, unrecognized text or mismatched totals require manual review instead of automatically filling stock quantities. Automatic supplier-bill import and carton-to-unit conversions await real supplier examples. The receiving form works for manual entry now.
 
 The application currently runs locally. It is not deployed to a cloud provider. Before internet deployment, choose the hosting/account context, configure HTTPS and `SECURE_COOKIES=1`, protect setup behind loopback, provide a persistent volume, and configure database backups. This is currently one shared workspace, not a multi-tenant or role-based system. The unauthenticated APK route serves only the installer; business data requires authentication. Local HTTP is intended only for the requested trusted-Wi-Fi test.
 

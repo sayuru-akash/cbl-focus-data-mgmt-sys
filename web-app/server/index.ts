@@ -130,18 +130,31 @@ const server = Bun.serve({
           });
         if (path === "/api/products" && method === "GET")
           return json(store.products());
-        if (path === "/api/purchases" && method === "GET") return json(store.inventory.purchases());
-        if (path === "/api/purchases" && method === "POST") return json(store.inventory.savePurchase(await req.json()),201);
-        const purchase = path.match(/^\/api\/purchases\/([^/]+)(?:\/(receive))?$/);
+        if (path === "/api/purchases" && method === "GET")
+          return json(store.inventory.purchases());
+        if (path === "/api/purchases" && method === "POST")
+          return json(store.inventory.savePurchase(await req.json()), 201);
+        const purchase = path.match(
+          /^\/api\/purchases\/([^/]+)(?:\/(receive))?$/,
+        );
         if (purchase) {
-          const [,id,action] = purchase;
-          if (!action && method === "GET") return json(store.inventory.purchase(id));
-          if (!action && method === "PUT") return json(store.inventory.savePurchase(await req.json(),id));
-          if (!action && method === "DELETE") {store.inventory.deletePurchase(id);return json({ok:true});}
-          if (action === "receive" && method === "POST") return json(store.inventory.postPurchase(id));
+          const [, id, action] = purchase;
+          if (!action && method === "GET")
+            return json(store.inventory.purchase(id));
+          if (!action && method === "PUT")
+            return json(store.inventory.savePurchase(await req.json(), id));
+          if (!action && method === "DELETE") {
+            store.inventory.deletePurchase(id);
+            return json({ ok: true });
+          }
+          if (action === "receive" && method === "POST")
+            return json(store.inventory.postPurchase(id));
         }
         const lot = path.match(/^\/api\/products\/([^/]+)\/lots\/([^/]+)$/);
-        if (lot && method === "PUT") {store.inventory.setLotPrices(lot[1],lot[2],await req.json());return json({ok:true});}
+        if (lot && method === "PUT") {
+          store.inventory.setLotPrices(lot[1], lot[2], await req.json());
+          return json({ ok: true });
+        }
         if (path === "/api/products" && method === "POST")
           return json({ id: store.saveProduct(await req.json()) }, 201);
         const product = path.match(
@@ -185,7 +198,10 @@ const server = Bun.serve({
         );
         if (bill) {
           const [, id, action] = bill;
-          if (action === "availability" && method === "GET") return json({issues:store.inventory.plan(store.bill(id)).issues});
+          if (action === "availability" && method === "GET")
+            return json({
+              issues: store.inventory.plan(store.bill(id)).issues,
+            });
           if (action === "raw" && method === "GET") {
             const b = store.bill(id);
             return new Response(b.raw, {

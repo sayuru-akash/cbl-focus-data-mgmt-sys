@@ -55,11 +55,16 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
+        onWheelCapture={() => {
+          const active = document.activeElement;
+          if (active instanceof HTMLInputElement && active.type === "number")
+            active.blur();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Escape") onClose();
           if (e.key === "Tab") {
             const controls = e.currentTarget.querySelectorAll<HTMLElement>(
-              "button,input,select,textarea,a[href]",
+              "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]",
             );
             const first = controls[0],
               last = controls[controls.length - 1];
