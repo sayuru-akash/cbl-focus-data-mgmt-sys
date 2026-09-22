@@ -1,0 +1,11 @@
+plugins { id 'com.android.application' }
+def transfer = new Properties()
+def transferFile = rootProject.file('local-transfer.properties')
+if (transferFile.exists()) transferFile.withInputStream { transfer.load(it) }
+android {
+    buildFeatures { buildConfig true }
+    namespace 'com.focus.connector'
+    compileSdk 36
+    defaultConfig { applicationId 'com.focus.connector'; minSdk 28; targetSdk 36; versionCode 6; versionName '0.4.0'; buildConfigField 'String', 'TRANSFER_URL', '"' + transfer.getProperty('transferUrl', '') + '"'; buildConfigField 'String', 'TRANSFER_TOKEN', '"' + transfer.getProperty('transferToken', '') + '"' }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}

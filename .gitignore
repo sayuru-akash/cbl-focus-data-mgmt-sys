@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+web-app/data/
+*.log
+.DS_Store
+.gradle/
+build/
+local.properties
+*.apk
+android-connector/local-transfer.properties
