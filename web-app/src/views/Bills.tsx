@@ -105,6 +105,36 @@ export default function BillReview({
         </div>
         <span className={"status " + bill.status}>{bill.status}</span>
       </header>
+      {editable && (
+        <div className="review-actions">
+          <button
+            className="danger-text"
+            disabled={busy}
+            onClick={() => void act("reject")}
+          >
+            Reject
+          </button>
+          <div>
+            <button disabled={busy} onClick={() => void act("save")}>
+              Save
+            </button>
+            <button
+              className="primary"
+              disabled={
+                busy ||
+                !bill.items.length ||
+                bill.items.some((item) => item.quantity <= 0) ||
+                !bill.number.trim() ||
+                !bill.shop.trim()
+              }
+              onClick={() => void act("accept")}
+            >
+              <Check size={17} />
+              Accept bill
+            </button>
+          </div>
+        </div>
+      )}
       <div className="detail-body">
         {bill.receipt && (
           <>
@@ -311,36 +341,6 @@ export default function BillReview({
           <p className="notice" role="status">
             {saved}
           </p>
-        )}
-        {editable && (
-          <div className="review-actions">
-            <button
-              className="danger-text"
-              disabled={busy}
-              onClick={() => void act("reject")}
-            >
-              Reject
-            </button>
-            <div>
-              <button disabled={busy} onClick={() => void act("save")}>
-                Save
-              </button>
-              <button
-                className="primary"
-                disabled={
-                  busy ||
-                  !bill.items.length ||
-                  bill.items.some((item) => item.quantity <= 0) ||
-                  !bill.number.trim() ||
-                  !bill.shop.trim()
-                }
-                onClick={() => void act("accept")}
-              >
-                <Check size={17} />
-                Accept bill
-              </button>
-            </div>
-          </div>
         )}
       </div>
       {issues && !restock && (

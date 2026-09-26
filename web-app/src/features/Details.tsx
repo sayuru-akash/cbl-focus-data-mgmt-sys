@@ -50,6 +50,14 @@ export function ReceiptDetail({ id }: { id: string }) {
         Back to stock in
       </Link>
       <ErrorText message={data.error?.message || ""} />
+      {data.isLoading && (
+        <p role="status" className="muted">
+          Loading…
+        </p>
+      )}
+      {data.isError && (
+        <button onClick={() => void data.refetch()}>Try again</button>
+      )}
       {data.data && (
         <>
           <header className="page-header">
@@ -127,6 +135,14 @@ export function CustomerDetail({ id }: { id: string }) {
         Back to customers
       </Link>
       <ErrorText message={data.error?.message || ""} />
+      {data.isLoading && (
+        <p role="status" className="muted">
+          Loading…
+        </p>
+      )}
+      {data.isError && (
+        <button onClick={() => void data.refetch()}>Try again</button>
+      )}
       {data.data && (
         <>
           <header className="page-header">

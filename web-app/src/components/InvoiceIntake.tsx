@@ -62,6 +62,8 @@ export default function InvoiceIntake({
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
   const [phase, setPhase] = useState("");
+  const [loading, setLoading] = useState(Boolean(id));
+  const [loadVersion, setLoadVersion] = useState(0);
   const [step, setStep] = useState(-1),
     [page, setPage] = useState(0);
   const review = useRef<HTMLElement>(null);
@@ -110,14 +112,18 @@ export default function InvoiceIntake({
     return () => urls.forEach((u) => URL.revokeObjectURL(u));
   }, [files]);
   useEffect(() => {
-    if (id)
+    if (id) {
+      setLoading(true);
+      setError("");
       api<Intake>(`/intakes/${id}`)
         .then((i) => {
           setIntake(i);
           setDraft(i.draft);
         })
-        .catch((e) => setError(e.message));
-  }, [id]);
+        .catch((e) => setError(e.message))
+        .finally(() => setLoading(false));
+    }
+  }, [id, loadVersion]);
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       review.current?.scrollIntoView({ block: "start", behavior: "instant" });
@@ -295,7 +301,15 @@ export default function InvoiceIntake({
         }}
       >
         <div className="invoice-intake">
-          {!intake ? (
+          {loading ? (
+            <p role="status" className="muted">
+              Loading invoice…
+            </p>
+          ) : !intake && id ? (
+            <button onClick={() => setLoadVersion((n) => n + 1)}>
+              Try again
+            </button>
+          ) : !intake ? (
             <>
               <p className="muted">
                 Choose every page, then process the invoice.
@@ -664,43 +678,47 @@ export default function InvoiceIntake({
                         </h3>
                         <span>{row.reviewed ? "Checked" : "To review"}</span>
                       </div>
+                      <div className="intake-item-identity">
+                        <h4>
+                          {row.description || "Check product description"}
+                        </h4>
+                        <span>
+                          {row.code || "Missing code"}
+                          {row.weight ? ` · ${row.weight}` : ""}
+                        </span>
+                      </div>
+                      <p className="intake-calculation">
+                        {row.sold ?? "?"} {row.unit} × {row.packSize ?? "?"} ={" "}
+                        <strong>
+                          {row.sold && row.packSize
+                            ? row.sold * row.packSize
+                            : "?"}{" "}
+                          packets
+                        </strong>
+                      </p>
+                      <div className="intake-item-facts">
+                        <span>
+                          Boxes <strong>{row.boxes ?? "?"}</strong>
+                        </span>
+                        <span>
+                          Price / {row.unit || "unit"}{" "}
+                          <strong>{money(row.unitPrice)}</strong>
+                        </span>
+                        <span>
+                          Line total <strong>{money(row.amount)}</strong>
+                        </span>
+                      </div>
                       <label>
-                        Product code
+                        Packet MRP
                         <input
+                          type="number"
+                          min=".01"
+                          step=".01"
+                          placeholder="From packaging"
                           disabled={busy || locked}
-                          value={row.code}
+                          value={row.mrp ?? ""}
                           onChange={(e) =>
-                            change(step, {
-                              code: e.target.value,
-                              productId: "",
-                            })
-                          }
-                        />
-                      </label>
-                      <label>
-                        Description
-                        <textarea
-                          disabled={busy || locked}
-                          rows={2}
-                          value={row.description}
-                          onChange={(e) => {
-                            const pack = packFrom(e.target.value, row.unit);
-                            change(step, {
-                              description: e.target.value,
-                              packSize: pack.size,
-                              packEvidence: pack.evidence,
-                            });
-                          }}
-                        />
-                      </label>
-                      <label>
-                        Packet weight / volume
-                        <input
-                          value={row.weight}
-                          placeholder="e.g. 480G"
-                          disabled={busy || locked}
-                          onChange={(e) =>
-                            change(step, { weight: e.target.value })
+                            change(step, { mrp: numeric(e.target.value) })
                           }
                         />
                       </label>
@@ -715,140 +733,180 @@ export default function InvoiceIntake({
                           emptyLabel="New product for this code"
                         />
                       </label>
-                      <div className="fields three">
+                      <details className="intake-edit-details" key={row.id}>
+                        <summary>Edit extracted details</summary>
                         <label>
-                          Boxes
+                          Product code
                           <input
-                            type="number"
-                            min="0"
-                            step=".001"
                             disabled={busy || locked}
-                            value={row.boxes ?? ""}
+                            value={row.code}
                             onChange={(e) =>
-                              change(step, { boxes: numeric(e.target.value) })
-                            }
-                          />
-                        </label>
-                        <label>
-                          Sold quantity
-                          <input
-                            type="number"
-                            min="0"
-                            step=".001"
-                            disabled={busy || locked}
-                            value={row.sold ?? ""}
-                            onChange={(e) =>
-                              change(step, { sold: numeric(e.target.value) })
-                            }
-                          />
-                        </label>
-                        <label>
-                          Invoice unit
-                          <select
-                            disabled={busy || locked}
-                            value={row.unit}
-                            onChange={(e) => {
-                              const pack = packFrom(
-                                row.description,
-                                e.target.value,
-                              );
                               change(step, {
-                                unit: e.target.value,
+                                code: e.target.value,
+                                productId: "",
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          Description
+                          <textarea
+                            disabled={busy || locked}
+                            rows={2}
+                            value={row.description}
+                            onChange={(e) => {
+                              const pack = packFrom(e.target.value, row.unit);
+                              change(step, {
+                                description: e.target.value,
                                 packSize: pack.size,
                                 packEvidence: pack.evidence,
                               });
                             }}
+                          />
+                        </label>
+                        <label>
+                          Packet weight / volume
+                          <input
+                            value={row.weight}
+                            placeholder="e.g. 480G"
+                            disabled={busy || locked}
+                            onChange={(e) =>
+                              change(step, { weight: e.target.value })
+                            }
+                          />
+                        </label>
+
+                        <div className="fields three">
+                          <label>
+                            Boxes
+                            <input
+                              type="number"
+                              min="0"
+                              step=".001"
+                              disabled={busy || locked}
+                              value={row.boxes ?? ""}
+                              onChange={(e) =>
+                                change(step, { boxes: numeric(e.target.value) })
+                              }
+                            />
+                          </label>
+                          <label>
+                            Sold quantity
+                            <input
+                              type="number"
+                              min="0"
+                              step=".001"
+                              disabled={busy || locked}
+                              value={row.sold ?? ""}
+                              onChange={(e) =>
+                                change(step, { sold: numeric(e.target.value) })
+                              }
+                            />
+                          </label>
+                          <label>
+                            Invoice unit
+                            <select
+                              disabled={busy || locked}
+                              value={row.unit}
+                              onChange={(e) => {
+                                const pack = packFrom(
+                                  row.description,
+                                  e.target.value,
+                                );
+                                change(step, {
+                                  unit: e.target.value,
+                                  packSize: pack.size,
+                                  packEvidence: pack.evidence,
+                                });
+                              }}
+                            >
+                              <option value="">Choose unit</option>
+                              {["DZ", "MC", "PKT", "EA", "PCS"].map((u) => (
+                                <option key={u} value={u}>
+                                  {u === "MC"
+                                    ? "MC (carton)"
+                                    : u === "DZ"
+                                      ? "DZ (12 packets)"
+                                      : `${u} (1 packet)`}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                        <div className="fields two">
+                          <label>
+                            Packets per {row.unit}
+                            <input
+                              type="number"
+                              min="1"
+                              max="10000"
+                              step="1"
+                              disabled={busy || locked || row.unit !== "MC"}
+                              value={row.packSize ?? ""}
+                              onChange={(e) =>
+                                change(step, {
+                                  packSize: numeric(e.target.value),
+                                  packEvidence: "Confirmed from source photo",
+                                })
+                              }
+                            />
+                          </label>
+                        </div>
+
+                        <small className="muted">
+                          {row.packEvidence}
+                          {row.unit === "MC" &&
+                            ". Packets in one carton, not packet weight."}
+                        </small>
+                        <div className="fields two">
+                          <label>
+                            Purchase price per {row.unit || "invoice unit"}
+                            <input
+                              type="number"
+                              min="0"
+                              step=".01"
+                              disabled={busy || locked}
+                              value={row.unitPrice ?? ""}
+                              onChange={(e) =>
+                                change(step, {
+                                  unitPrice: numeric(e.target.value),
+                                })
+                              }
+                            />
+                          </label>
+                          <label>
+                            Line amount (VAT incl.)
+                            <input
+                              type="number"
+                              min="0"
+                              step=".01"
+                              disabled={busy || locked}
+                              value={row.amount ?? ""}
+                              onChange={(e) =>
+                                change(step, {
+                                  amount: numeric(e.target.value),
+                                })
+                              }
+                            />
+                          </label>
+                        </div>
+                        {!locked && (
+                          <button
+                            className="text-button danger-text"
+                            disabled={busy}
+                            onClick={() => {
+                              setDraft({
+                                ...draft,
+                                headerReviewed: false,
+                                lines: draft.lines.filter((_, i) => i !== step),
+                              });
+                              setStep((s) => Math.max(0, s - 1));
+                            }}
                           >
-                            <option value="">Choose unit</option>
-                            {["DZ", "MC", "PKT", "EA", "PCS"].map((u) => (
-                              <option key={u} value={u}>
-                                {u === "MC"
-                                  ? "MC (carton)"
-                                  : u === "DZ"
-                                    ? "DZ (12 packets)"
-                                    : `${u} (1 packet)`}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-                      <div className="fields two">
-                        <label>
-                          Packets per {row.unit}
-                          <input
-                            type="number"
-                            min="1"
-                            max="10000"
-                            step="1"
-                            disabled={busy || locked || row.unit !== "MC"}
-                            value={row.packSize ?? ""}
-                            onChange={(e) =>
-                              change(step, {
-                                packSize: numeric(e.target.value),
-                                packEvidence: "Confirmed from source photo",
-                              })
-                            }
-                          />
-                        </label>
-                        <label>
-                          Packet MRP
-                          <input
-                            type="number"
-                            min=".01"
-                            step=".01"
-                            placeholder="From packaging"
-                            disabled={busy || locked}
-                            value={row.mrp ?? ""}
-                            onChange={(e) =>
-                              change(step, { mrp: numeric(e.target.value) })
-                            }
-                          />
-                        </label>
-                      </div>
-                      <p className="intake-calculation">
-                        {row.sold ?? "?"} {row.unit} × {row.packSize ?? "?"} ={" "}
-                        <strong>
-                          {row.sold && row.packSize
-                            ? row.sold * row.packSize
-                            : "?"}{" "}
-                          packets
-                        </strong>
-                      </p>
-                      <small className="muted">
-                        {row.packEvidence}
-                        {row.unit === "MC" &&
-                          ". Packets in one carton, not packet weight."}
-                      </small>
-                      <div className="fields two">
-                        <label>
-                          Purchase price per {row.unit || "invoice unit"}
-                          <input
-                            type="number"
-                            min="0"
-                            step=".01"
-                            disabled={busy || locked}
-                            value={row.unitPrice ?? ""}
-                            onChange={(e) =>
-                              change(step, {
-                                unitPrice: numeric(e.target.value),
-                              })
-                            }
-                          />
-                        </label>
-                        <label>
-                          Line amount (VAT incl.)
-                          <input
-                            type="number"
-                            min="0"
-                            step=".01"
-                            disabled={busy || locked}
-                            value={row.amount ?? ""}
-                            onChange={(e) =>
-                              change(step, { amount: numeric(e.target.value) })
-                            }
-                          />
-                        </label>
-                      </div>
+                            Remove misread row
+                          </button>
+                        )}
+                      </details>
                       <div className="intake-cost" aria-label="Purchase cost">
                         <span>
                           Purchase cost / packet{" "}
@@ -860,10 +918,6 @@ export default function InvoiceIntake({
                             : "Check quantities and invoice totals to calculate cost."}
                         </small>
                       </div>
-                      <small className="muted">
-                        MRP is the price on the packet. Selling price comes from
-                        the shop bill.
-                      </small>
                       {!locked && (
                         <p className="muted">
                           {lineIssues(row)
@@ -888,22 +942,6 @@ export default function InvoiceIntake({
                         >
                           <Check size={16} />
                           Confirm and next
-                        </button>
-                      )}
-                      {!locked && (
-                        <button
-                          className="text-button danger-text"
-                          disabled={busy}
-                          onClick={() => {
-                            setDraft({
-                              ...draft,
-                              headerReviewed: false,
-                              lines: draft.lines.filter((_, i) => i !== step),
-                            });
-                            setStep((s) => Math.max(0, s - 1));
-                          }}
-                        >
-                          Remove misread row
                         </button>
                       )}
                     </>

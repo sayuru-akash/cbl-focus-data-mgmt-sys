@@ -88,10 +88,7 @@ export default function Connection() {
               <Download size={17} />
               Download APK
             </a>
-            <p>
-              CBL Focus uses its own Bluetooth printer picker. A separate
-              receiver must be paired with the tablet.
-            </p>
+            <p>Pair the receiver phone with your CBL tablet.</p>
             <ol>
               <li>Install the receiver on a second Android device.</li>
               <li>Enter the server address and connector key.</li>
@@ -100,9 +97,6 @@ export default function Connection() {
                 Start the receiver. In CBL, slide 3 Inches on that device.
               </li>
             </ol>
-            <p className="muted">
-              Compatibility with CBL Focus is awaiting a device test.
-            </p>
           </section>
           <section className="connection-section">
             <h2>

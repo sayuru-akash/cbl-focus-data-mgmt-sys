@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
+  X,
 } from "lucide-react";
 import { api } from "../api";
 import { ErrorText } from "./UI";
@@ -132,6 +133,19 @@ export default function DataTable({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          {search && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Clear search"
+              onClick={() => {
+                setSearch("");
+                update({ q: "" });
+              }}
+            >
+              <X size={16} />
+            </button>
+          )}
         </label>
         {statuses && (
           <label className="filter-label">
@@ -174,6 +188,7 @@ export default function DataTable({
           <button
             className="icon-button"
             aria-label="Reset filters"
+            title="Reset filters"
             onClick={() =>
               router.replace(
                 path +
@@ -189,6 +204,9 @@ export default function DataTable({
         )}
       </div>
       <ErrorText message={data.error?.message || ""} />
+      {data.isError && (
+        <button onClick={() => void data.refetch()}>Try again</button>
+      )}
       <div className="table-wrap" aria-busy={data.isFetching}>
         <table>
           <thead>

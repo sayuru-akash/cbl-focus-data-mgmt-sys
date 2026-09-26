@@ -747,3 +747,73 @@ button.primary:hover {
     font-size: 14px;
   }
 }
+.intake-item-identity h4 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  line-height: 1.4;
+}
+.intake-item-identity span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.intake-item-facts {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 0 0 18px;
+}
+.intake-item-facts span {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.intake-item-facts strong {
+  font-size: 14px;
+  color: #122131;
+}
+.intake-edit-details {
+  border-top: 1px solid var(--border);
+  margin: 0 0 16px;
+}
+.intake-edit-details summary {
+  cursor: pointer;
+  padding: 14px 0;
+  color: var(--accent);
+  font-size: 13px;
+}
+.intake-edit-details[open] summary {
+  margin-bottom: 10px;
+}
+.grid-tools .search input {
+  min-width: 0;
+}
+.grid-tools .search .icon-button {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 6px;
+  flex-shrink: 0;
+}
+.record-page {
+  overflow: visible;
+}
+.record-page .review-actions {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: white;
+  margin: 0;
+  padding: 12px 20px;
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+}
+@media (pointer: coarse) {
+  .icon-button,
+  .record-open,
+  .grid-footer button,
+  .sidebar nav a {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
