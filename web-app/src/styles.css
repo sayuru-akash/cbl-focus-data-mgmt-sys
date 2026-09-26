@@ -1373,3 +1373,51 @@ a.bill-row {
   color: inherit;
   flex-shrink: 0;
 }
+
+.intake-selection {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 16px;
+  margin: 20px 0;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e40af;
+}
+.intake-selection span {
+  font-size: 13px;
+}
+.intake-spinner {
+  animation: intake-spin 1s linear infinite;
+}
+@keyframes intake-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .intake-spinner {
+    animation: none;
+  }
+}
+.intake-cost {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.intake-cost span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.intake-cost small {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.intake-upload-actions {
+  margin-top: 14px;
+}

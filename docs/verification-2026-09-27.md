@@ -43,3 +43,11 @@ Proof files:
 ## Remaining environment limits
 
 This is a verified local build, not a cloud deployment or a promise of error-free operation. The actual supplier draft still requires MRP and item confirmation. OCR currently depends on local macOS Apple Vision, Swift and Tesseract; a non-Mac host needs an OCR worker. Android camera capture, prolonged physical-device Bluetooth operation, HTTPS hosting and scheduled external backups require verification in their target environments. Existing Android code was not changed in this rebuild.
+
+## Photo selection follow-up
+
+Reproduced a file-picker regression: resetting the input emptied its live FileList before a deferred React state update copied the files. Selection now copies files immediately, validates count/type/size, shows thumbnails and total size, rejects repeated selections, and exposes a labelled processing action. Retested selecting both original photos, selecting a duplicate, removing and adding a page, and reopening the existing draft through processing. Existing reviewed data was preserved.
+
+Fresh OCR in a separate in-memory database reported page progress 0/2, 1/2, then 17 extracted rows and zero products. The page displays upload/reading progress. The browser confirmed 36 DZ = 432 packets and 3 MC of 480GX6EA = 18 packets. Removing the explicit carton suffix clears the old inferred count. Packet weight, purchase price per invoice unit, allocated-discount packet cost, and packaging MRP are separate fields. Cost preview and stock posting share the same integer-cent allocation function.
+
+Follow-up checks: 41 tests, 194 assertions pass; TypeScript and production build pass. Includes invalid uploads, ambiguous/nested carton counts and exact discount-cent allocation.

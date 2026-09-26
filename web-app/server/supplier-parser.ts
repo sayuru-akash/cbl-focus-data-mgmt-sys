@@ -59,15 +59,18 @@ export const readMoney = (s: string): number | null => {
   return Number.isFinite(n) && n >= 0 ? n : null;
 };
 export function packFrom(description: string, unit: string) {
-  const text = plain(description).replace(/\s/g, "");
+  const text = plain(description).replace(/×/g, "X").replace(/\s/g, "");
   if (plain(unit) === "DZ") return { size: 12, evidence: "1 DZ = 12 packets" };
   if (["PKT", "EA", "PCS"].includes(plain(unit)))
     return { size: 1, evidence: `1 ${unit} = 1 packet` };
   if (plain(unit) !== "MC")
     return { size: null, evidence: "Check the invoice unit" };
   // Weight is not a pack count. Read only an explicit packaging suffix.
-  const match = text.match(/\d+(?:\.\d+)?(?:KG|G|C|ML|L)((?:X\d+)+)EA\b/);
-  if (!match)
+  const matches = [
+    ...text.matchAll(/\d+(?:\.\d+)?(?:KG|G|C|ML|L)((?:X\d+)+)EA\b/g),
+  ];
+  const match = matches[0];
+  if (!match || matches.length > 1)
     return { size: null, evidence: "Pack size is unclear in the photo" };
   const values = match[1]!.slice(1).split("X").map(Number);
   const size = values.reduce((a, b) => a * b, 1);

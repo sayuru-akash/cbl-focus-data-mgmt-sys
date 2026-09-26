@@ -1,3 +1,4 @@
+import { invoiceCosts } from "../../server/intake-costs";
 import { lineIssues } from "../../server/intake-validation";
 import ProductPicker from "./ProductPicker";
 import { useEffect, useRef, useState } from "react";
@@ -9,6 +10,7 @@ import {
   Plus,
   Trash2,
   Check,
+  LoaderCircle,
 } from "lucide-react";
 import { api, type Product } from "../api";
 import type { IntakeDraft, IntakeLine } from "../../server/supplier-parser";
@@ -22,7 +24,14 @@ export type Intake = {
   draft: IntakeDraft;
   revision: number;
   purchase_id?: string;
-  pages: { id: string; filename: string; position: number; error: string }[];
+  processing?: boolean;
+  pages: {
+    id: string;
+    filename: string;
+    position: number;
+    error: string;
+    processed?: number;
+  }[];
   issues: string[];
 };
 const money = (n: number | null) =>
@@ -52,8 +61,10 @@ export default function InvoiceIntake({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
+  const [phase, setPhase] = useState("");
   const [step, setStep] = useState(-1),
     [page, setPage] = useState(0);
+  const review = useRef<HTMLElement>(null);
   const upload = useRef<HTMLInputElement>(null),
     camera = useRef<HTMLInputElement>(null);
   const locked = intake?.status === "received";
@@ -107,6 +118,17 @@ export default function InvoiceIntake({
         })
         .catch((e) => setError(e.message));
   }, [id]);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      review.current?.scrollIntoView({ block: "start", behavior: "instant" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [step]);
+  function navigateStep(next: number) {
+    if (!draft || busy) return;
+    setStep(next);
+    if (draft.lines[next]) setPage(draft.lines[next]!.page);
+  }
   function apply(i: Intake) {
     setIntake(i);
     setDraft(i.draft);
@@ -139,9 +161,11 @@ export default function InvoiceIntake({
     }
   }
   async function process() {
+    if (busy) return;
     await run(async () => {
       let current = intake;
       if (!current) {
+        setPhase(`Uploading ${files.length} photos…`);
         const form = new FormData();
         files.forEach((f) => form.append("pages", f));
         current = await api<Intake>("/intakes", { method: "POST", body: form });
@@ -151,8 +175,10 @@ export default function InvoiceIntake({
       if (current.status === "received" || current.draft.lines.length) {
         apply(current);
         setMessage("Opened the existing invoice.");
+        if (!id) router.replace(`/stock/invoices/${current.id}`);
         return;
       }
+      setPhase(`Reading ${current.pages.length} pages…`);
       apply(
         await api<Intake>(`/intakes/${current.id}/process`, { method: "POST" }),
       );
@@ -162,6 +188,30 @@ export default function InvoiceIntake({
       if (!id) router.replace(`/stock/invoices/${current.id}`);
     });
   }
+  useEffect(() => {
+    if (!busy || !intake || intake.draft.lines.length) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const progress = await api<Intake>(`/intakes/${intake.id}`);
+        if (!stopped) {
+          const read = progress.pages.filter((p) => p.processed).length;
+          setPhase(
+            read === progress.pages.length
+              ? "Building invoice draft…"
+              : `Reading page ${read + 1} of ${progress.pages.length}…`,
+          );
+        }
+      } catch {
+        /* The upload/processing request reports actionable errors. */
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 1500);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [busy, intake?.id]);
   async function save(next = draft) {
     if (!intake || !next) return;
     const result = await api<Intake>(`/intakes/${intake.id}`, {
@@ -194,13 +244,43 @@ export default function InvoiceIntake({
     });
   }
   const row = draft?.lines[step];
+  const cost = draft ? invoiceCosts(draft)?.[step] : null;
   const ready = Boolean(draft && step >= draft.lines.length && step >= 0);
   const photo = intake?.pages[page];
   function choose(next: FileList | null) {
-    if (next) {
-      setFiles((f) => [...f, ...Array.from(next)]);
-      setError("");
+    // FileList is live. Snapshot it before the input is reset below.
+    const selected = Array.from(next || []);
+    if (!selected.length) return;
+    const combined = [...files, ...selected];
+    if (
+      selected.some(
+        (f) =>
+          !["image/jpeg", "image/png", "image/webp"].includes(f.type) ||
+          !f.size ||
+          f.size > 12 * 1024 * 1024,
+      )
+    ) {
+      setError("Choose JPG, PNG or WebP photos, up to 12 MB each.");
+      return;
     }
+    if (
+      combined.length > 20 ||
+      combined.reduce((n, f) => n + f.size, 0) > 60 * 1024 * 1024
+    ) {
+      setError("Choose up to 20 photos and 60 MB per invoice.");
+      return;
+    }
+    if (
+      new Set(combined.map((f) => `${f.name}:${f.size}:${f.lastModified}`))
+        .size !== combined.length
+    ) {
+      setError(
+        "That photo is already selected. Each page is needed only once.",
+      );
+      return;
+    }
+    setFiles(combined);
+    setError("");
   }
   const Frame = inline ? IntakePage : Modal;
   return (
@@ -217,7 +297,12 @@ export default function InvoiceIntake({
         <div className="invoice-intake">
           {!intake ? (
             <>
-              <p className="muted">Add every page of one invoice.</p>
+              <p className="muted">
+                Choose every page, then process the invoice.
+              </p>
+              <small className="muted">
+                JPG, PNG or WebP · 12 MB per photo · 20 pages / 60 MB total
+              </small>
               <input
                 ref={upload}
                 hidden
@@ -250,12 +335,32 @@ export default function InvoiceIntake({
                   Upload photos
                 </button>
               </div>
+              {files.length > 0 && (
+                <div className="intake-selection" role="status">
+                  <strong>
+                    {files.length} {files.length === 1 ? "photo" : "photos"}{" "}
+                    selected
+                  </strong>
+                  <span>
+                    {(
+                      files.reduce((n, f) => n + f.size, 0) /
+                      1024 /
+                      1024
+                    ).toFixed(1)}{" "}
+                    MB · {busy ? "Uploading…" : "Ready to process"}
+                  </span>
+                </div>
+              )}
               <div className="intake-thumbnails">
                 {files.map((f, i) => (
                   <figure key={`${f.name}-${i}`}>
                     <img src={previews[i]} alt={`Invoice page ${i + 1}`} />
                     <figcaption>
                       {i + 1}. {f.name}
+                      <br />
+                      <span className="muted">
+                        {(f.size / 1024 / 1024).toFixed(1)} MB
+                      </span>
                     </figcaption>
                     <button
                       aria-label={`Remove photo ${i + 1}`}
@@ -274,17 +379,27 @@ export default function InvoiceIntake({
                   disabled={!files.length || busy}
                   onClick={() => void process()}
                 >
-                  {busy ? "Processing photos…" : "Process invoice"}
+                  {busy
+                    ? phase
+                    : `Process${files.length ? ` ${files.length} photos` : " invoice"}`}
                 </button>
               </div>
             </>
           ) : !draft?.pages.length ? (
             <>
-              <p>
-                {busy
-                  ? "Reading invoice pages…"
-                  : "Photos saved. Process them to build the draft."}
-              </p>
+              <div
+                className="intake-selection"
+                role="status"
+                aria-live="polite"
+              >
+                {busy && <LoaderCircle size={20} className="intake-spinner" />}
+                <strong>{busy ? phase : "Photos saved"}</strong>
+                <span>
+                  {busy
+                    ? "Keep this page open while the draft is prepared."
+                    : "Process the photos to build the draft."}
+                </span>
+              </div>
               {intake.pages.map((p) => (
                 <p key={p.id}>
                   {p.filename}
@@ -301,25 +416,45 @@ export default function InvoiceIntake({
             </>
           ) : (
             <>
-              <div className="intake-progress">
+              <nav
+                className="intake-progress intake-navigation"
+                aria-label="Invoice review"
+              >
                 <button
-                  className={step < 0 ? "active" : ""}
-                  onClick={() => setStep(-1)}
-                  disabled={busy}
+                  aria-label="Previous item"
+                  disabled={busy || step < 0}
+                  onClick={() => navigateStep(step - 1)}
                 >
-                  Invoice
+                  <ChevronLeft size={18} />
+                  <span>Previous</span>
                 </button>
-                <span>
+                <select
+                  aria-label="Review step"
+                  value={step}
+                  disabled={busy}
+                  onChange={(e) => navigateStep(Number(e.target.value))}
+                >
+                  <option value={-1}>Invoice details</option>
+                  {draft.lines.map((line, i) => (
+                    <option value={i} key={line.id}>
+                      Item {i + 1} of {draft.lines.length}
+                      {line.reviewed ? " ✓" : ""}
+                    </option>
+                  ))}
+                  <option value={draft.lines.length}>Review summary</option>
+                </select>
+                <span className="intake-checked">
                   {draft.lines.filter((l) => l.reviewed).length}/
-                  {draft.lines.length} items checked
+                  {draft.lines.length} checked
                 </span>
                 <button
-                  disabled={busy}
-                  onClick={() => setStep(draft.lines.length)}
+                  className="primary"
+                  disabled={busy || ready}
+                  onClick={() => navigateStep(step + 1)}
                 >
-                  Summary
+                  Next <ChevronRight size={18} />
                 </button>
-              </div>
+              </nav>
               <div className="intake-layout">
                 <aside className="intake-source">
                   <label>
@@ -360,7 +495,7 @@ export default function InvoiceIntake({
                     </a>
                   )}
                 </aside>
-                <section className="intake-review">
+                <section className="intake-review" ref={review}>
                   {step < 0 ? (
                     <>
                       <h3>Invoice details</h3>
@@ -552,14 +687,21 @@ export default function InvoiceIntake({
                             const pack = packFrom(e.target.value, row.unit);
                             change(step, {
                               description: e.target.value,
-                              ...(pack.size
-                                ? {
-                                    packSize: pack.size,
-                                    packEvidence: pack.evidence,
-                                  }
-                                : {}),
+                              packSize: pack.size,
+                              packEvidence: pack.evidence,
                             });
                           }}
+                        />
+                      </label>
+                      <label>
+                        Packet weight / volume
+                        <input
+                          value={row.weight}
+                          placeholder="e.g. 480G"
+                          disabled={busy || locked}
+                          onChange={(e) =>
+                            change(step, { weight: e.target.value })
+                          }
                         />
                       </label>
                       <label>
@@ -619,7 +761,13 @@ export default function InvoiceIntake({
                           >
                             <option value="">Choose unit</option>
                             {["DZ", "MC", "PKT", "EA", "PCS"].map((u) => (
-                              <option key={u}>{u}</option>
+                              <option key={u} value={u}>
+                                {u === "MC"
+                                  ? "MC (carton)"
+                                  : u === "DZ"
+                                    ? "DZ (12 packets)"
+                                    : `${u} (1 packet)`}
+                              </option>
                             ))}
                           </select>
                         </label>
@@ -632,7 +780,7 @@ export default function InvoiceIntake({
                             min="1"
                             max="10000"
                             step="1"
-                            disabled={busy || locked || row.unit === "DZ"}
+                            disabled={busy || locked || row.unit !== "MC"}
                             value={row.packSize ?? ""}
                             onChange={(e) =>
                               change(step, {
@@ -666,10 +814,14 @@ export default function InvoiceIntake({
                           packets
                         </strong>
                       </p>
-                      <small className="muted">{row.packEvidence}</small>
+                      <small className="muted">
+                        {row.packEvidence}
+                        {row.unit === "MC" &&
+                          ". Packets in one carton, not packet weight."}
+                      </small>
                       <div className="fields two">
                         <label>
-                          Printed unit price
+                          Purchase price per {row.unit || "invoice unit"}
                           <input
                             type="number"
                             min="0"
@@ -697,6 +849,21 @@ export default function InvoiceIntake({
                           />
                         </label>
                       </div>
+                      <div className="intake-cost" aria-label="Purchase cost">
+                        <span>
+                          Purchase cost / packet{" "}
+                          <strong>{money(cost?.costPrice ?? null)}</strong>
+                        </span>
+                        <small>
+                          {cost
+                            ? `VAT included · Invoice discount: ${money(cost.discountCents / 100)}`
+                            : "Check quantities and invoice totals to calculate cost."}
+                        </small>
+                      </div>
+                      <small className="muted">
+                        MRP is the price on the packet. Selling price comes from
+                        the shop bill.
+                      </small>
                       {!locked && (
                         <p className="muted">
                           {lineIssues(row)
@@ -720,7 +887,7 @@ export default function InvoiceIntake({
                           onClick={() => void confirm()}
                         >
                           <Check size={16} />
-                          Confirm item
+                          Confirm and next
                         </button>
                       )}
                       {!locked && (
@@ -816,30 +983,6 @@ export default function InvoiceIntake({
                 </section>
               </div>
               <div className="intake-footer">
-                <div>
-                  <button
-                    disabled={busy || step < 0}
-                    onClick={() => {
-                      const next = step - 1;
-                      setStep(next);
-                      if (draft.lines[next]) setPage(draft.lines[next]!.page);
-                    }}
-                  >
-                    <ChevronLeft size={16} />
-                    Back
-                  </button>
-                  <button
-                    disabled={busy || ready}
-                    onClick={() => {
-                      const next = step + 1;
-                      setStep(next);
-                      if (draft.lines[next]) setPage(draft.lines[next]!.page);
-                    }}
-                  >
-                    Next
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
                 {!locked && (
                   <div>
                     <button

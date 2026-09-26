@@ -222,3 +222,46 @@ test("stale drafts cannot overwrite current review, and duplicate tax invoices c
     store.db.close();
   }
 });
+
+test("carton conversion distinguishes weight, nested packs and incomplete counts", () => {
+  expect(packFrom("CAKE 480G × 6EA", "MC").size).toBe(6);
+  expect(packFrom("DRINK 200ML X24EA", "MC").size).toBe(24);
+  expect(packFrom("CAKE 480G", "MC").size).toBeNull();
+  expect(packFrom("CAKE 480GX0EA", "MC").size).toBeNull();
+  expect(packFrom("CAKE 480GX10001EA", "MC").size).toBeNull();
+  expect(packFrom("CAKE 480GX6EA / 480GX12EA", "MC").size).toBeNull();
+  expect(packFrom("CAKE 30GX18X12EA", "DZ").size).toBe(12);
+  expect(
+    lineIssues({ ...line(), description: "CAKE 480GX6EA", packSize: 3 }),
+  ).toContain("Boxes and description pack size do not match packet quantity");
+  expect(lineIssues({ ...line(), unit: "PKT", packSize: 3 })).toContain(
+    "Individual units must contain 1 packet",
+  );
+});
+
+test("photo selection validation rejects duplicates and oversize uploads without drafts", async () => {
+  const store = new Store(":memory:");
+  const intakes = new Intakes(store);
+  try {
+    const photo = new File([new Uint8Array([1, 2, 3])], "page.jpg", {
+      type: "image/jpeg",
+    });
+    await expect(intakes.create([photo, photo])).rejects.toThrow("same photo");
+    await expect(
+      intakes.create([
+        new File([new Uint8Array(12 * 1024 * 1024 + 1)], "large.jpg", {
+          type: "image/jpeg",
+        }),
+      ]),
+    ).rejects.toThrow("12 MB");
+    await expect(
+      intakes.create([new File(["text"], "page.txt", { type: "text/plain" })]),
+    ).rejects.toThrow("JPG");
+    expect(intakes.list()).toHaveLength(0);
+    const created = await intakes.create([photo]);
+    expect(created.pages).toHaveLength(1);
+    expect((await intakes.create([photo])).id).toBe(created.id);
+  } finally {
+    store.db.close();
+  }
+});

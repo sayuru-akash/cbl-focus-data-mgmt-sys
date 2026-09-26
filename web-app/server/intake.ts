@@ -1,3 +1,4 @@
+import { invoiceCosts } from "./intake-costs";
 import { createHash, randomUUID } from "node:crypto";
 import { AppError, Store, string, units } from "./store";
 import { cents } from "./inventory";
@@ -40,11 +41,17 @@ export class Intakes {
     if (!r) throw new AppError("Invoice not found", 404);
     const pages = this.store.db
       .query(
-        "SELECT id,position,filename,error FROM intake_pages WHERE intake_id=? ORDER BY position",
+        "SELECT id,position,filename,error,(ocr IS NOT NULL) AS processed FROM intake_pages WHERE intake_id=? ORDER BY position",
       )
       .all(id);
     const draft = JSON.parse(r.draft) as IntakeDraft;
-    return { ...r, draft, pages, issues: draftIssues(draft, pages.length) };
+    return {
+      ...r,
+      draft,
+      pages,
+      processing: this.processing.has(id),
+      issues: draftIssues(draft, pages.length),
+    };
   }
   page(id: string, page: string, original = false) {
     const r = this.store.db
@@ -280,29 +287,9 @@ export class Intakes {
           .get(d.tin, key(d.number))
       )
         fail("This supplier invoice has already been received");
-      const allocations = d.lines.map((l) => ({
-        line: l,
-        cents: cents(l.amount)!,
-      }));
-      const gross = cents(d.gross)!,
-        discount = cents(d.discount)!;
-      const shares = allocations.map((a) =>
-        Number((BigInt(a.cents) * BigInt(discount)) / BigInt(gross)),
-      );
-      let remainder = discount - shares.reduce((a, b) => a + b, 0);
-      const order = allocations
-        .map((a, i) => ({
-          i,
-          fraction: Number(
-            (BigInt(a.cents) * BigInt(discount)) % BigInt(gross),
-          ),
-        }))
-        .sort((a, b) => b.fraction - a.fraction || a.i - b.i);
-      for (const a of order) {
-        if (!remainder) break;
-        shares[a.i]!++;
-        remainder--;
-      }
+      const costs = invoiceCosts(d);
+      if (!costs) fail("Check invoice amounts before receiving");
+      const shares = costs!.map((c) => c.discountCents);
       const resolved = new Map<string, string>();
       const lines = d.lines.map((l, index) => {
         const mapping = this.store.db
@@ -356,10 +343,7 @@ export class Intakes {
           productId,
           quantity,
           mrp: l.mrp,
-          costPrice:
-            Math.round(
-              (allocations[index]!.cents - shares[index]!) / quantity,
-            ) / 100,
+          costPrice: costs![index]!.costPrice,
         };
       });
       const purchase = this.store.inventory.savePurchase({

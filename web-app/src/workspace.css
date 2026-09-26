@@ -651,5 +651,99 @@ button.primary:hover {
 .intake-review .fields.two:has(input[type="date"]) {
   grid-template-columns: 1fr;
 }
-.server-status{position:static;justify-content:flex-end;margin-bottom:24px}.grid-tools .search{flex-direction:row;align-items:center}.grid-tools .search svg{flex-shrink:0}.sidebar nav{margin-top:0}.data-grid td{padding-top:14px;padding-bottom:14px}
-@media(max-width:700px){.workspace{display:flex}.server-status{justify-content:flex-end;margin-bottom:20px}.sidebar nav{margin-top:0}.grid-tools .search{margin:0}}
+.server-status {
+  position: static;
+  justify-content: flex-end;
+  margin-bottom: 24px;
+}
+.grid-tools .search {
+  flex-direction: row;
+  align-items: center;
+}
+.grid-tools .search svg {
+  flex-shrink: 0;
+}
+.sidebar nav {
+  margin-top: 0;
+}
+.data-grid td {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+@media (max-width: 700px) {
+  .workspace {
+    display: flex;
+  }
+  .server-status {
+    justify-content: flex-end;
+    margin-bottom: 20px;
+  }
+  .sidebar nav {
+    margin-top: 0;
+  }
+  .grid-tools .search {
+    margin: 0;
+  }
+}
+
+/* Keep review navigation reachable at every form length and screen size. */
+.intake-progress.intake-navigation {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  padding: 12px 0;
+  margin-bottom: 20px;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+}
+.intake-navigation button {
+  min-height: 44px;
+  flex-shrink: 0;
+}
+.intake-navigation select {
+  min-height: 44px;
+  width: auto;
+  min-width: 0;
+  flex: 1;
+  max-width: 260px;
+  margin: 0;
+}
+.intake-navigation .intake-checked {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.intake-navigation > button:last-child {
+  margin-left: auto;
+}
+.intake-review {
+  scroll-margin-top: 88px;
+}
+.invoice-page .intake-source {
+  top: 88px;
+}
+.invoice-page .intake-footer {
+  position: static;
+}
+@media (max-width: 700px) {
+  .intake-progress.intake-navigation {
+    gap: 8px;
+  }
+  .intake-navigation button {
+    padding: 10px 14px;
+  }
+  .intake-navigation > button:first-child {
+    width: 44px;
+    padding: 10px;
+  }
+  .intake-navigation > button:first-child span,
+  .intake-navigation .intake-checked {
+    display: none;
+  }
+  .intake-navigation select {
+    max-width: none;
+    font-size: 14px;
+  }
+}
