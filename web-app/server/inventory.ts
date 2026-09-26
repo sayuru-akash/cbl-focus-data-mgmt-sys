@@ -19,6 +19,12 @@ export const cents = (value: unknown): number | null => {
 const normalize = (value: string) =>
   value.trim().replace(/\s+/g, " ").toUpperCase();
 
+export const productIdentity = (value: string) =>
+  normalize(value)
+    .replace(/×/g, "X")
+    .replace(/(\d+(?:\.\d+)?\s*(?:KG|G|ML|L))\s*(?:X\s*\d+\s*)+(?:EA)?$/i, "$1")
+    .replace(/(\d)\s+(KG|G|ML|L)\b/g, "$1$2");
+
 export class Inventory {
   constructor(private store: Store) {
     store.db.exec(`
@@ -108,15 +114,19 @@ export class Inventory {
     })();
   }
   match(name: string, unit: string) {
-    return (
-      (
-        this.store.db
-          .query(
-            "SELECT p.id FROM product_aliases a JOIN products p ON p.id=a.product_id WHERE a.name=? AND a.unit=? AND p.archived=0",
-          )
-          .get(normalize(name), normalize(unit)) as any
-      )?.id || ""
-    );
+    const remembered = this.store.db
+      .query(
+        "SELECT p.id FROM product_aliases a JOIN products p ON p.id=a.product_id WHERE a.name=? AND a.unit=? AND upper(p.unit)=? AND p.archived=0",
+      )
+      .get(normalize(name), normalize(unit), normalize(unit)) as any;
+    if (remembered) return remembered.id as string;
+    // Identity is independent of price and available quantity. Ambiguous codes stay unselected.
+    const candidates = this.store.db
+      .query(
+        "SELECT id FROM products WHERE match_name=? AND upper(unit)=? AND archived=0 LIMIT 2",
+      )
+      .all(productIdentity(name), normalize(unit)) as { id: string }[];
+    return candidates.length === 1 ? candidates[0]!.id : "";
   }
   nextSku() {
     let n = Number(this.store.setting("skuSequence") || 0),

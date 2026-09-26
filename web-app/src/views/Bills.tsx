@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import { useRouter } from "next/navigation";
 import {
   Upload,
   File,
@@ -16,17 +17,32 @@ import { api, date, type Bill, type Product } from "../api";
 import { Empty, SearchBox, ErrorText, Modal } from "../components/UI";
 import InvoiceIntake from "../components/InvoiceIntake";
 
+export type BillNavigationGuard = ((next: () => void) => void) | null;
+const unsavedBills = new Map<string, Bill>();
+const editableValue = (b: Bill) =>
+  JSON.stringify([b.number, b.shop, b.items, b.note]);
+
 export default function BillReview({
   id,
   products,
   onClose,
   onUpdate,
+  navigationGuard,
+  panel = false,
 }: {
   id: string;
   products: Product[];
   onClose: () => void;
   onUpdate: () => void;
+  navigationGuard?: MutableRefObject<BillNavigationGuard>;
+  panel?: boolean;
 }) {
+  const router = useRouter();
+  const baseline = useRef("");
+  const [leaveAction, setLeaveAction] = useState<(() => void) | null>(null);
+  const [remote, setRemote] = useState<Bill | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
   const [bill, setBill] = useState<Bill | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -34,25 +50,112 @@ export default function BillReview({
     [saved, setSaved] = useState("");
   const [issues, setIssues] = useState<any[] | null>(null),
     [restock, setRestock] = useState(false);
+  const current = useRef<Bill | null>(null);
+  current.current = bill;
+  const dirty =
+    !!bill &&
+    bill.status === "pending" &&
+    editableValue(bill) !== baseline.current;
+  function apply(received: Bill) {
+    baseline.current = editableValue(received);
+    unsavedBills.delete(id);
+    setBill(received);
+    setRemote(null);
+  }
+  function navigate(next: () => void) {
+    if (busy) return;
+    if (dirty) setLeaveAction(() => next);
+    else next();
+  }
   useEffect(() => {
+    if (navigationGuard) navigationGuard.current = navigate;
+    return () => {
+      if (navigationGuard) navigationGuard.current = null;
+    };
+  }, [dirty, busy, navigationGuard]);
+  useEffect(() => {
+    if (dirty && bill) unsavedBills.set(id, bill);
+    else if (bill) unsavedBills.delete(id);
+  }, [dirty, bill, id]);
+  useEffect(() => {
+    if (!dirty && !busy) return;
+    const unload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    const links = (e: MouseEvent) => {
+      const link = (e.target as Element).closest?.("a[href]");
+      if (
+        !(link instanceof HTMLAnchorElement) ||
+        e.button !== 0 ||
+        link.origin !== window.location.origin ||
+        link.target === "_blank" ||
+        link.hasAttribute("download") ||
+        e.metaKey ||
+        e.ctrlKey ||
+        e.shiftKey ||
+        e.altKey
+      )
+        return;
+      e.preventDefault();
+      e.stopPropagation();
+      navigate(() => router.push(link.pathname + link.search));
+    };
+    window.addEventListener("beforeunload", unload);
+    document.addEventListener("click", links, true);
+    return () => {
+      window.removeEventListener("beforeunload", unload);
+      document.removeEventListener("click", links, true);
+    };
+  }, [dirty, busy]);
+  useEffect(() => {
+    let cancelled = false;
+    setBill(null);
+    setError("");
+    setRemote(null);
     api<Bill>("/bills/" + id)
       .then((received) => {
-        setBill(received);
+        if (cancelled) return;
+        baseline.current = editableValue(received);
+        const retained = unsavedBills.get(id);
+        setBill(retained || received);
+        if (retained && retained.revision !== received.revision)
+          setRemote(received);
         setSource(!received.receipt || received.receipt.warnings.length > 0);
       })
-      .catch((e) => setError(e.message));
-  }, [id]);
+      .catch((e) => {
+        if (!cancelled) setError(e.message);
+      });
+    const timer = setInterval(async () => {
+      if (!current.current) return;
+      try {
+        const latest = await api<Bill>("/bills/" + id);
+        if (!cancelled && latest.revision !== current.current?.revision)
+          setRemote(latest);
+      } catch {
+        /* Keep edits visible during a network interruption. */
+      }
+    }, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [id, reloadKey]);
   async function act(action: "save" | "accept" | "reject") {
     if (!bill) return;
     setBusy(true);
     setError("");
     setSaved("");
     try {
-      if (action !== "reject")
-        await api("/bills/" + id, {
+      let revision = bill.revision;
+      if (action !== "reject") {
+        const saved = await api<{ revision: number }>("/bills/" + id, {
           method: "PUT",
           body: JSON.stringify(bill),
         });
+        revision = saved.revision;
+        apply({ ...bill, revision });
+      }
       if (action === "accept") {
         const check = await api<{ issues: any[] }>(`/bills/${id}/availability`);
         if (check.issues.length) {
@@ -61,8 +164,11 @@ export default function BillReview({
         }
       }
       if (action !== "save")
-        await api(`/bills/${id}/${action}`, { method: "POST" });
-      setBill(await api("/bills/" + id));
+        await api(`/bills/${id}/${action}`, {
+          method: "POST",
+          body: JSON.stringify({ revision }),
+        });
+      apply(await api("/bills/" + id));
       setSaved(
         action === "save"
           ? "Saved."
@@ -71,8 +177,14 @@ export default function BillReview({
             : "Rejected.",
       );
       onUpdate();
+      return true;
     } catch (e: any) {
       setError(e.message);
+      try {
+        const latest = await api<Bill>("/bills/" + id);
+        if (latest.revision !== bill.revision) setRemote(latest);
+      } catch {}
+      return false;
     } finally {
       setBusy(false);
     }
@@ -82,19 +194,24 @@ export default function BillReview({
       <div className="detail-body">
         <ErrorText message={error} />
         {!error && "Loading…"}
+        {error && (
+          <button onClick={() => setReloadKey((k) => k + 1)}>Try again</button>
+        )}
       </div>
     );
   const editable = bill.status === "pending";
   return (
     <>
       <header className="detail-header">
-        <button
-          className="icon-button"
-          aria-label="Back to bills"
-          onClick={onClose}
-        >
-          <ArrowLeft size={19} />
-        </button>
+        {!panel && (
+          <button
+            className="icon-button"
+            aria-label="Back to bills"
+            onClick={() => navigate(onClose)}
+          >
+            <ArrowLeft size={19} />
+          </button>
+        )}
         <div>
           <strong>
             {bill.number ? `Bill #${bill.number}` : "Review bill"}
@@ -136,6 +253,17 @@ export default function BillReview({
         </div>
       )}
       <div className="detail-body">
+        {remote && (
+          <div className="notice" role="status">
+            This bill changed in another window.{" "}
+            <button
+              className="text-button"
+              onClick={() => navigate(() => apply(remote))}
+            >
+              Reload bill
+            </button>
+          </div>
+        )}
         {bill.receipt && (
           <>
             <div className="receipt-summary">
@@ -252,6 +380,9 @@ export default function BillReview({
               <div className="line-item">
                 <ProductPicker
                   label={`Item ${i + 1}`}
+                  showStock
+                  unit={original?.unit}
+                  mrp={original?.mrp ?? item.mrp}
                   disabled={!editable || busy}
                   value={item.productId}
                   onChange={(productId) =>
@@ -343,6 +474,41 @@ export default function BillReview({
           </p>
         )}
       </div>
+      {leaveAction && (
+        <Modal title="Unsaved bill" onClose={() => setLeaveAction(null)}>
+          <p>Save your changes before switching?</p>
+          <div className="actions">
+            <button disabled={busy} onClick={() => setLeaveAction(null)}>
+              Keep editing
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => {
+                unsavedBills.delete(id);
+                const next = leaveAction;
+                setLeaveAction(null);
+                next();
+              }}
+            >
+              Discard changes
+            </button>
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={async () => {
+                if (await act("save")) {
+                  const next = leaveAction;
+                  setLeaveAction(null);
+                  next();
+                }
+              }}
+            >
+              Save and continue
+            </button>
+          </div>
+          <ErrorText message={error} />
+        </Modal>
+      )}
       {issues && !restock && (
         <Modal title="Stock needed" onClose={() => setIssues(null)}>
           <div className="stock-issues">

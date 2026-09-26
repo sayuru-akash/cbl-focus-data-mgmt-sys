@@ -29,7 +29,9 @@ export default function DataTable({
   dates = false,
   defaultSort,
   defaultStatus = "all",
+  preserveStatus = false,
   extra = {},
+  onRowsChange,
 }: {
   endpoint: string;
   columns: ColumnDef<Row, any>[];
@@ -38,7 +40,9 @@ export default function DataTable({
   dates?: boolean;
   defaultSort: string;
   defaultStatus?: string;
+  preserveStatus?: boolean;
   extra?: Record<string, string>;
+  onRowsChange?: (rows: Row[]) => void;
 }) {
   const router = useRouter(),
     path = usePathname(),
@@ -98,6 +102,9 @@ export default function DataTable({
     placeholderData: keepPreviousData,
     refetchInterval: 10000,
   });
+  useEffect(() => {
+    if (data.data && !data.isPlaceholderData) onRowsChange?.(data.data.rows);
+  }, [data.data, data.isPlaceholderData, onRowsChange]);
   const total = data.data?.total || 0,
     actualPage = data.data?.page || page;
   const table = useReactTable({
@@ -184,20 +191,23 @@ export default function DataTable({
             </label>
           </>
         )}
-        {searchParams.size > 0 && (
+        {Array.from(searchParams.keys()).some(
+          (key) => key !== "bill" && !(preserveStatus && key === "status"),
+        ) && (
           <button
             className="icon-button"
             aria-label="Reset filters"
             title="Reset filters"
-            onClick={() =>
-              router.replace(
-                path +
-                  (searchParams.get("tab")
-                    ? "?tab=" + searchParams.get("tab")
-                    : ""),
-                { scroll: false },
-              )
-            }
+            onClick={() => {
+              const keep = new URLSearchParams();
+              if (searchParams.get("tab"))
+                keep.set("tab", searchParams.get("tab")!);
+              if (preserveStatus && searchParams.get("status"))
+                keep.set("status", searchParams.get("status")!);
+              router.replace(path + (keep.size ? "?" + keep : ""), {
+                scroll: false,
+              });
+            }}
           >
             <RotateCcw size={17} />
           </button>

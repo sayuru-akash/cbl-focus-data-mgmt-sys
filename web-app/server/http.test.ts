@@ -126,6 +126,19 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
           headers,
         })
       ).status,
+    ).toBe(409);
+    const captured = await (
+      await fetch(base + `/api/bills/${first.id}`, { headers })
+    ).json();
+    expect(captured.revision).toBe(1);
+    expect(
+      (
+        await fetch(base + `/api/bills/${first.id}/accept`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ revision: captured.revision }),
+        })
+      ).status,
     ).toBe(400);
     expect(
       (

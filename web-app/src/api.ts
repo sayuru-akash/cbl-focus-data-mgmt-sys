@@ -61,6 +61,7 @@ export type Purchase = {
   created?: string;
 };
 export type Bill = {
+  revision: number;
   id: string;
   filename: string;
   mime: string;

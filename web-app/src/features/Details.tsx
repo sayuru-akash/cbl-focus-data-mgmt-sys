@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Purchase } from "../api";
 import { useStock } from "./Providers";
@@ -13,13 +13,16 @@ import { billColumns } from "./Lists";
 export function BillDetail({ id }: { id: string }) {
   const { products, refresh } = useStock(),
     router = useRouter();
+  const back = useSearchParams().get("returnTo");
+  const returnTo =
+    back && (back === "/bills" || back.startsWith("/bills?")) ? back : "/bills";
   return (
     <div className="record-page">
       <BillReview
         id={id}
         products={products}
         onUpdate={refresh}
-        onClose={() => router.push("/bills")}
+        onClose={() => router.push(returnTo)}
       />
     </div>
   );

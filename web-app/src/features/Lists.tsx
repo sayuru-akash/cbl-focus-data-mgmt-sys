@@ -1,12 +1,8 @@
 "use client";
 import Link from "next/link";
-import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Plus, Upload, ChevronRight } from "lucide-react";
+import { Plus, ChevronRight } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import DataTable, { type Row } from "../components/DataTable";
-import { api } from "../api";
-import { ErrorText } from "../components/UI";
 export const money = (value: number | null | undefined) =>
   value == null
     ? "Not recorded"
@@ -210,65 +206,7 @@ export const billColumns: ColumnDef<Row, any>[] = [
   },
   open((r) => `/bills/${r.id}`),
 ];
-export function BillList() {
-  const input = useRef<HTMLInputElement>(null),
-    router = useRouter();
-  const [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
-  async function upload(file: File) {
-    setBusy(true);
-    setError("");
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      const result = await api("/upload", { method: "POST", body: form });
-      router.push(`/bills/${result.id}`);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <>
-      <header className="page-header">
-        <div>
-          <h1>Bills</h1>
-          <p>Review incoming bills.</p>
-        </div>
-        <button disabled={busy} onClick={() => input.current?.click()}>
-          <Upload size={18} />
-          {busy ? "Importing…" : "Import file"}
-        </button>
-        <input
-          hidden
-          type="file"
-          ref={input}
-          onChange={(e) => {
-            if (e.target.files?.[0]) void upload(e.target.files[0]);
-            e.target.value = "";
-          }}
-        />
-      </header>
-      <ErrorText message={error} />
-      <DataTable
-        endpoint="/tables/bills"
-        label="Bills"
-        defaultSort="received"
-        defaultStatus="pending"
-        dates
-        statuses={[
-          ["all", "All"],
-          ["pending", "Pending"],
-          ["accepted", "Accepted"],
-          ["rejected", "Rejected"],
-        ]}
-        columns={billColumns}
-      />
-      <p className="page-footer">Stock changes only after acceptance.</p>
-    </>
-  );
-}
+export { default as BillList } from "./BillInbox";
 export function CustomerList() {
   return (
     <>

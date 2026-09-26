@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { decodePrint, parseReceipt } from "./receipt";
-import { Inventory, cents } from "./inventory";
+import { Inventory, cents, productIdentity } from "./inventory";
 
 export class AppError extends Error {
   constructor(
@@ -41,10 +41,34 @@ export class Store {
  CREATE TABLE IF NOT EXISTS movements(id TEXT PRIMARY KEY,product_id TEXT NOT NULL REFERENCES products(id),delta INTEGER NOT NULL,reason TEXT NOT NULL,bill_id TEXT REFERENCES bills(id),created TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS customers(id TEXT PRIMARY KEY,outlet_id TEXT NOT NULL UNIQUE,name TEXT NOT NULL,address TEXT NOT NULL,phone TEXT NOT NULL,created TEXT NOT NULL,last_seen TEXT NOT NULL);
  `);
+    const productColumns = this.db
+      .query("PRAGMA table_info(products)")
+      .all() as { name: string }[];
+    if (!productColumns.some((c) => c.name === "match_name")) {
+      this.db.transaction(() => {
+        this.db.exec(
+          "ALTER TABLE products ADD COLUMN match_name TEXT NOT NULL DEFAULT ''",
+        );
+        for (const p of this.db.query("SELECT id,name FROM products").all() as {
+          id: string;
+          name: string;
+        }[])
+          this.db
+            .query("UPDATE products SET match_name=? WHERE id=?")
+            .run(productIdentity(p.name), p.id);
+      })();
+    }
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS product_match ON products(match_name,upper(unit)) WHERE archived=0",
+    );
     this.inventory = new Inventory(this);
     const columns = this.db.query("PRAGMA table_info(bills)").all() as {
       name: string;
     }[];
+    if (!columns.some((column) => column.name === "revision"))
+      this.db.exec(
+        "ALTER TABLE bills ADD COLUMN revision INTEGER NOT NULL DEFAULT 1",
+      );
     if (!columns.some((column) => column.name === "receipt"))
       this.db.exec("ALTER TABLE bills ADD COLUMN receipt TEXT");
     if (!columns.some((column) => column.name === "customer_id"))
@@ -199,15 +223,17 @@ export class Store {
         )
           fail("An item with stock history keeps its original unit");
         this.db
-          .query("UPDATE products SET sku=?,name=?,unit=?,minimum=? WHERE id=?")
-          .run(sku, name, unit, minimum, id);
+          .query(
+            "UPDATE products SET sku=?,name=?,unit=?,minimum=?,match_name=? WHERE id=?",
+          )
+          .run(sku, name, unit, minimum, productIdentity(name), id);
       } else {
         id = randomUUID();
         this.db
           .query(
-            "INSERT INTO products(id,sku,name,unit,stock,minimum) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO products(id,sku,name,unit,stock,minimum,match_name) VALUES (?,?,?,?,?,?,?)",
           )
-          .run(id, sku, name, unit, stock, minimum);
+          .run(id, sku, name, unit, stock, minimum, productIdentity(name));
         if (stock) {
           this.movement(id, stock, "Opening stock");
           this.inventory.addLot(
@@ -314,6 +340,21 @@ export class Store {
       receipt: JSON.parse(r.receipt || "null"),
     };
   }
+  reviewBill(id: string) {
+    const b = this.bill(id);
+    if (b.status === "pending")
+      b.items = b.items.map((item: any) => {
+        if (item.productId || item.sourceLine === undefined) return item;
+        const source = b.receipt?.items[item.sourceLine];
+        return source
+          ? {
+              ...item,
+              productId: this.inventory.match(source.name, source.unit),
+            }
+          : item;
+      });
+    return b;
+  }
   saveBill(id: string, input: any) {
     const number = string(input.number, 100),
       shop = string(input.shop),
@@ -350,18 +391,31 @@ export class Store {
       };
     });
     this.db.transaction(() => {
-      if (this.bill(id).status !== "pending")
-        fail("This bill is already closed");
+      const current = this.bill(id);
+      if (current.status !== "pending") fail("This bill is already closed");
+      if (input.revision !== undefined && input.revision !== current.revision)
+        throw new AppError(
+          "This bill changed in another window. Reload it before saving.",
+          409,
+        );
       this.db
-        .query("UPDATE bills SET number=?,shop=?,items=?,note=? WHERE id=?")
+        .query(
+          "UPDATE bills SET number=?,shop=?,items=?,note=?,revision=revision+1 WHERE id=?",
+        )
         .run(number, shop, JSON.stringify(items), note, id);
     })();
+    return { revision: this.bill(id).revision };
   }
-  decide(id: string, status: "accepted" | "rejected") {
+  decide(id: string, status: "accepted" | "rejected", revision?: number) {
     return this.db.transaction(() => {
       const b = this.bill(id);
       if (b.status === status) return { unchanged: true };
       if (b.status !== "pending") fail("This bill is already closed");
+      if (revision !== undefined && revision !== b.revision)
+        throw new AppError(
+          "This bill changed in another window. Reload it before continuing.",
+          409,
+        );
       if (status === "accepted") {
         if (!b.number || !b.shop || !b.items.length)
           fail("Add bill number, shop, and items first");
@@ -387,7 +441,9 @@ export class Store {
         }
       }
       this.db
-        .query("UPDATE bills SET status=?,decided=? WHERE id=?")
+        .query(
+          "UPDATE bills SET status=?,decided=?,revision=revision+1 WHERE id=?",
+        )
         .run(status, new Date().toISOString(), id);
       return { unchanged: false };
     })();

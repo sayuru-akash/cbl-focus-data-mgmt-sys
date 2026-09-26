@@ -98,16 +98,6 @@ export default function Connection() {
               </li>
             </ol>
           </section>
-          <section className="connection-section">
-            <h2>
-              <Download size={21} />
-              File import
-            </h2>
-            <p>
-              You can also import a saved print file from Bills. Originals are
-              kept unchanged.
-            </p>
-          </section>
         </div>
       )}
     </>

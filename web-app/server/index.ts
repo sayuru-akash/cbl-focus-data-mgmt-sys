@@ -5,6 +5,7 @@ import { networkInterfaces } from "node:os";
 import { Store, AppError, string } from "./store";
 import { Intakes } from "./intake";
 import { grid } from "./grid";
+import { cents } from "./inventory";
 const root = resolve(import.meta.dir, "..");
 const data = process.env.DATA_DIR || resolve(root, "data");
 mkdirSync(data, { recursive: true, mode: 0o700 });
@@ -150,19 +151,32 @@ const server = Bun.serve({
             maxFileMB: 10,
           });
         if (path === "/api/product-options" && method === "GET") {
-          const q = string(url.searchParams.get("q") || "", 200).replace(
-            /[\\%_]/g,
-            "\\$&",
+          const words = string(url.searchParams.get("q") || "", 200)
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 12);
+          const unit = url.searchParams.get("unit")
+            ? string(url.searchParams.get("unit"), 30).toUpperCase()
+            : null;
+          const mrp = url.searchParams.has("mrp")
+            ? cents(Number(url.searchParams.get("mrp")))
+            : null;
+          const where = words.map(
+            () => "(p.name LIKE ? ESCAPE '\\' OR p.sku LIKE ? ESCAPE '\\')",
           );
-          const unit = url.searchParams.get("unit");
+          const args = words.flatMap((word) => {
+            const term = "%" + word.replace(/[\\%_]/g, "\\$&") + "%";
+            return [term, term];
+          });
           return json(
             store.db
               .query(
-                "SELECT id,name,sku,unit,stock/1000.0 stock FROM products WHERE archived=0 AND (name LIKE ? ESCAPE '\\' OR sku LIKE ? ESCAPE '\\') AND (? IS NULL OR unit=?) ORDER BY name COLLATE NOCASE,id LIMIT 30",
+                `SELECT p.id,p.name,p.sku,p.unit,p.stock/1000.0 stock,COALESCE((SELECT SUM(l.remaining)/1000.0 FROM stock_lots l WHERE l.product_id=p.id AND (? IS NULL OR l.mrp=?)),0) matchingStock FROM products p WHERE p.archived=0 AND (? IS NULL OR upper(p.unit)=?) ${where.length ? "AND " + where.join(" AND ") : ""} ORDER BY p.name COLLATE NOCASE,p.id LIMIT 30`,
               )
-              .all("%" + q + "%", "%" + q + "%", unit, unit),
+              .all(mrp, mrp, unit, unit, ...args),
           );
         }
+
         const option = path.match(/^\/api\/product-options\/([^/]+)$/);
         if (option && method === "GET") {
           const row = store.db
@@ -171,7 +185,13 @@ const server = Bun.serve({
             )
             .get(option[1]!);
           if (!row) throw new AppError("Item not found", 404);
-          return json(row);
+          return json({
+            ...row,
+            lots: store.inventory
+              .lots(option[1]!)
+              .filter((lot) => lot.remaining > 0)
+              .map((lot) => ({ mrp: lot.mrp, remaining: lot.remaining })),
+          });
         }
         const table = path.match(
           /^\/api\/tables\/(products|bills|invoices|customers|lots|movements)$/,
@@ -333,17 +353,30 @@ const server = Bun.serve({
             });
           }
           if (!action && method === "GET") {
-            const { raw, hash, ...b } = store.bill(id);
+            const { raw, hash, ...b } = store.reviewBill(id);
             return json(b);
           }
           if (!action && method === "PUT") {
-            store.saveBill(id, await req.json());
-            return json({ ok: true });
+            const input = await req.json();
+            if (!Number.isInteger(input.revision))
+              throw new AppError("Reload this bill before saving.", 409);
+            return json(store.saveBill(id, input));
           }
-          if (action === "accept" && method === "POST")
-            return json(store.decide(id, "accepted"));
-          if (action === "reject" && method === "POST")
-            return json(store.decide(id, "rejected"));
+          if (
+            (action === "accept" || action === "reject") &&
+            method === "POST"
+          ) {
+            const input = await req.json().catch(() => ({}));
+            if (!Number.isInteger(input.revision))
+              throw new AppError("Reload this bill before continuing.", 409);
+            return json(
+              store.decide(
+                id,
+                action === "accept" ? "accepted" : "rejected",
+                input.revision,
+              ),
+            );
+          }
         }
         throw new AppError("Not found", 404);
       }

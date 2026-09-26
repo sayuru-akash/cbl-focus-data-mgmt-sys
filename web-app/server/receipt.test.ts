@@ -50,6 +50,26 @@ test("extracts the observed two-line CBL layout without confusing distributor an
   });
   expect(parsed.customerAddress).toBe("No. 2, Shop Road");
 });
+test("pending prints can match newly received products without silently saving the review", () => {
+  const store = new Store(":memory:");
+  try {
+    const { id } = store.ingest(Buffer.from(receiptText), "first", "", "Test");
+    expect(store.bill(id).items[0].productId).toBe("");
+    const product = store.saveProduct({
+      sku: "NEW",
+      name: "EXAMPLE BISCUITS 7G",
+      unit: "PKT",
+      stock: 100,
+      mrp: 20,
+    });
+    expect(store.reviewBill(id).items[0].productId).toBe(product);
+    expect(store.bill(id).items[0].productId).toBe("");
+    expect(store.products()[0].stock).toBe(100);
+    expect(store.bill(id).revision).toBe(1);
+  } finally {
+    store.db.close();
+  }
+});
 test("customer is linked by outlet ID while historical bill snapshots stay intact", () => {
   const store = new Store(":memory:");
   try {

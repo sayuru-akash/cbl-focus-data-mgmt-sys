@@ -184,7 +184,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         <main id="main">
           <div className="server-status">
             <span className={health.isSuccess ? "online" : ""} />
-            {health.isSuccess ? "Receiver online" : "Receiver offline"}
+            {health.isSuccess ? "Server online" : "Server offline"}
           </div>
           <ErrorText message={error} />
           {children}

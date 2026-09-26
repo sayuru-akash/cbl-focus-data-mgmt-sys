@@ -42,6 +42,33 @@ function sale(
   });
   return id;
 }
+test("automatic matching keeps flavour, weight, unit and ambiguous SKUs distinct", () => {
+  const s = fresh();
+  const p = s.saveProduct({
+    sku: "C1",
+    name: "Vanilla Cake 30G X 18 X12EA",
+    unit: "PKT",
+  });
+  s.saveProduct({ sku: "C2", name: "Vanilla Cake 310G", unit: "PKT" });
+  s.saveProduct({ sku: "C3", name: "Chocolate Cake 30G", unit: "PKT" });
+  expect(s.inventory.match(" vanilla   cake 30 g ", "pkt")).toBe(p);
+  expect(s.inventory.match("Vanilla Cake 30G", "DZ")).toBe("");
+  expect(s.inventory.match("Vanilla Cake 300G", "PKT")).toBe("");
+  const duplicate = s.saveProduct({
+    sku: "C4",
+    name: "VANILLA CAKE 30G",
+    unit: "PKT",
+    stock: 100,
+    mrp: 50,
+  });
+  expect(s.inventory.match("Vanilla Cake 30G", "PKT")).toBe("");
+  s.db
+    .query("INSERT INTO product_aliases VALUES (?,?,?)")
+    .run("VANILLA CAKE 30G", "PKT", duplicate!);
+  expect(s.inventory.match("Vanilla Cake 30G", "PKT")).toBe(duplicate);
+  s.archive(duplicate!);
+  expect(s.inventory.match("Vanilla Cake 30G", "PKT")).toBe(p);
+});
 test("multi-item receiving creates stable SKUs only on posting and posts once", () => {
   const s = fresh(),
     p = s.inventory.savePurchase({

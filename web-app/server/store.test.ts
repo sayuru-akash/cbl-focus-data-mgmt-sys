@@ -25,6 +25,31 @@ function bill(s: Store, items: any[], number = "B1") {
 }
 
 describe("Stock ledger", () => {
+  test("stale bill saves and decisions cannot overwrite another review", () => {
+    const s = fresh(),
+      p = item(s, "REV"),
+      b = bill(s, [{ productId: p, quantity: 2 }]);
+    const original = s.bill(b);
+    const saved = s.saveBill(b, { ...original, shop: "Updated shop" });
+    expect(saved.revision).toBe(original.revision + 1);
+    expect(() => s.saveBill(b, { ...original, shop: "Stale shop" })).toThrow(
+      "another window",
+    );
+    expect(() => s.decide(b, "accepted", original.revision)).toThrow(
+      "another window",
+    );
+    expect(() => s.decide(b, "rejected", original.revision)).toThrow(
+      "another window",
+    );
+    expect(s.bill(b).shop).toBe("Updated shop");
+    expect(s.products()[0].stock).toBe(10);
+    s.decide(b, "accepted", saved.revision);
+    expect(s.bill(b).revision).toBe(saved.revision + 1);
+    expect(s.decide(b, "accepted", saved.revision)).toEqual({
+      unchanged: true,
+    });
+    expect(s.products()[0].stock).toBe(8);
+  });
   test("acceptance deducts once, duplicate print does not create another bill", () => {
     const s = fresh(),
       p = item(s, "A"),

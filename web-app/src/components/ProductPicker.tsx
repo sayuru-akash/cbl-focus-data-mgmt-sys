@@ -12,6 +12,9 @@ export default function ProductPicker({
   label = "Stock item",
   emptyLabel = "Choose stock item",
   packetsOnly = false,
+  unit,
+  mrp,
+  showStock = false,
 }: {
   value: string;
   onChange: (id: string) => void;
@@ -19,6 +22,9 @@ export default function ProductPicker({
   label?: string;
   emptyLabel?: string;
   packetsOnly?: boolean;
+  unit?: string;
+  mrp?: number | null;
+  showStock?: boolean;
 }) {
   const [open, setOpen] = useState(false),
     [search, setSearch] = useState(""),
@@ -32,17 +38,31 @@ export default function ProductPicker({
     queryFn: () => api(`/product-options/${value}`),
     enabled: !!value,
     retry: false,
+    refetchInterval: showStock ? 10000 : false,
   });
   const options = useQuery({
-    queryKey: ["product-options", query, packetsOnly],
+    queryKey: ["product-options", query, packetsOnly, unit, mrp],
     queryFn: () =>
       api<any[]>(
-        `/product-options?q=${encodeURIComponent(query)}${packetsOnly ? "&unit=PKT" : ""}`,
+        `/product-options?q=${encodeURIComponent(query)}${packetsOnly || unit ? `&unit=${encodeURIComponent(packetsOnly ? "PKT" : unit!)}` : ""}${mrp != null ? `&mrp=${mrp}` : ""}`,
       ),
     enabled: open,
   });
+  const matching =
+    selected.data?.lots
+      ?.filter((lot: any) => mrp == null || lot.mrp === mrp)
+      .reduce((sum: number, lot: any) => sum + lot.remaining, 0) ?? 0;
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
+    <Popover.Root
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) {
+          setSearch("");
+          setQuery("");
+        }
+      }}
+    >
       <Popover.Trigger asChild>
         <button
           type="button"
@@ -50,18 +70,41 @@ export default function ProductPicker({
           aria-label={label}
           aria-expanded={open}
           disabled={disabled}
-          className="product-picker"
+          className={
+            "product-picker" +
+            (showStock && selected.data ? " product-picker-card" : "")
+          }
         >
-          <span>
-            {value
-              ? selected.data
-                ? `${selected.data.name} · ${selected.data.sku}`
-                : selected.isLoading
-                  ? "Loading item…"
-                  : "Unavailable item"
-              : emptyLabel}
-          </span>
-          <ChevronsUpDown size={15} />
+          {showStock && selected.data ? (
+            <span className="product-picker-info">
+              <strong>{selected.data.name}</strong>
+              <small>
+                {selected.data.sku} ·{" "}
+                {selected.data.archived
+                  ? "Archived"
+                  : `${selected.data.stock} ${selected.data.unit} total`}
+              </small>
+              <small className={matching > 0 ? "stock-match" : "stock-short"}>
+                {mrp == null
+                  ? `${matching} ${selected.data.unit} available`
+                  : `${matching} ${selected.data.unit} at MRP ${mrp.toFixed(2)}`}
+              </small>
+            </span>
+          ) : (
+            <span>
+              {value
+                ? selected.data
+                  ? `${selected.data.name} · ${selected.data.sku}`
+                  : selected.isLoading
+                    ? "Loading item…"
+                    : "Unavailable item"
+                : emptyLabel}
+            </span>
+          )}
+          {showStock && value && !disabled && (
+            <small className="picker-change">Change</small>
+          )}
+          {!disabled && <ChevronsUpDown size={15} />}
         </button>
       </Popover.Trigger>
       <Popover.Portal>
@@ -108,6 +151,9 @@ export default function ProductPicker({
                     <strong>{p.name}</strong>
                     <small>
                       {p.sku} · {p.stock} {p.unit}
+                      {mrp != null
+                        ? ` · ${p.matchingStock} at MRP ${mrp.toFixed(2)}`
+                        : ""}
                     </small>
                   </span>
                   {value === p.id && <Check size={16} />}
