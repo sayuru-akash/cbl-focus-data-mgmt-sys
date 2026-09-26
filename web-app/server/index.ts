@@ -3,10 +3,13 @@ import { resolve, extname } from "node:path";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { networkInterfaces } from "node:os";
 import { Store, AppError, string } from "./store";
+import { Intakes } from "./intake";
+import { grid } from "./grid";
 const root = resolve(import.meta.dir, "..");
 const data = process.env.DATA_DIR || resolve(root, "data");
 mkdirSync(data, { recursive: true, mode: 0o700 });
 const store = new Store(resolve(data, "focus.sqlite"));
+const intakes = new Intakes(store);
 if (!store.setting("connectorKey"))
   store.set("connectorKey", randomBytes(24).toString("hex"));
 const port = Number(process.env.PORT || 4310);
@@ -34,7 +37,8 @@ const attempts = new Map<string, { count: number; until: number }>();
 const server = Bun.serve({
   hostname: process.env.HOST || "0.0.0.0",
   port,
-  maxRequestBodySize: 11 * 1024 * 1024,
+  maxRequestBodySize: 64 * 1024 * 1024,
+  idleTimeout: 255,
   async fetch(req, server) {
     const url = new URL(req.url),
       path = url.pathname;
@@ -42,6 +46,19 @@ const server = Bun.serve({
     const address = server.requestIP(req)?.address || "";
     const loopback = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(address);
     try {
+      if (
+        path.startsWith("/api/") &&
+        path !== "/api/ingest" &&
+        !["GET", "HEAD"].includes(method)
+      ) {
+        const origin = req.headers.get("origin");
+        if (
+          origin &&
+          new URL(origin).host !== url.host &&
+          !(loopback && process.env.DEV_UI_ORIGIN === origin)
+        )
+          throw new AppError("Invalid request origin", 403);
+      }
       if (path === "/api/health") return json({ ok: true });
       if (path === "/api/session" && method === "GET")
         return json({
@@ -111,7 +128,11 @@ const server = Bun.serve({
         // Same-site cookies and origin checks protect browser mutations on LAN and behind HTTPS.
         if (!["GET", "HEAD"].includes(method)) {
           const origin = req.headers.get("origin");
-          if (origin && new URL(origin).host !== url.host)
+          if (
+            origin &&
+            new URL(origin).host !== url.host &&
+            !(loopback && process.env.DEV_UI_ORIGIN === origin)
+          )
             throw new AppError("Invalid request origin", 403);
         }
         if (path === "/api/logout" && method === "POST") {
@@ -128,27 +149,110 @@ const server = Bun.serve({
             mode: "Local Wi-Fi",
             maxFileMB: 10,
           });
+        if (path === "/api/product-options" && method === "GET") {
+          const q = string(url.searchParams.get("q") || "", 200).replace(
+            /[\\%_]/g,
+            "\\$&",
+          );
+          const unit = url.searchParams.get("unit");
+          return json(
+            store.db
+              .query(
+                "SELECT id,name,sku,unit,stock/1000.0 stock FROM products WHERE archived=0 AND (name LIKE ? ESCAPE '\\' OR sku LIKE ? ESCAPE '\\') AND (? IS NULL OR unit=?) ORDER BY name COLLATE NOCASE,id LIMIT 30",
+              )
+              .all("%" + q + "%", "%" + q + "%", unit, unit),
+          );
+        }
+        const option = path.match(/^\/api\/product-options\/([^/]+)$/);
+        if (option && method === "GET") {
+          const row = store.db
+            .query(
+              "SELECT id,name,sku,unit,archived,stock/1000.0 stock FROM products WHERE id=?",
+            )
+            .get(option[1]!);
+          if (!row) throw new AppError("Item not found", 404);
+          return json(row);
+        }
+        const table = path.match(
+          /^\/api\/tables\/(products|bills|invoices|customers|lots|movements)$/,
+        );
+        if (table && method === "GET")
+          return json(grid(store, table[1]!, url.searchParams));
+        const customer = path.match(/^\/api\/customers\/([^/]+)$/);
+        if (customer && method === "GET") {
+          const row = store.db
+            .query("SELECT * FROM customers WHERE id=?")
+            .get(customer[1]!);
+          if (!row) throw new AppError("Customer not found", 404);
+          return json(row);
+        }
+        if (path === "/api/intakes" && method === "GET")
+          return json(intakes.list());
+        if (path === "/api/intakes" && method === "POST") {
+          const form = await req.formData();
+          const files = form.getAll("pages");
+          if (files.some((f) => !(f instanceof File)))
+            throw new AppError("Choose invoice photos");
+          return json(await intakes.create(files as File[]), 201);
+        }
+        const intake = path.match(
+          /^\/api\/intakes\/([^/]+)(?:\/(process|receive|pages)(?:\/([^/]+)(?:\/(original))?)?)?$/,
+        );
+        if (intake) {
+          const [, id, action, page, original] = intake;
+          if (action === "pages" && page && method === "GET") {
+            const file = intakes.page(id!, page, Boolean(original));
+            return new Response(file.bytes, {
+              headers: {
+                "Content-Type": file.mime,
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+              },
+            });
+          }
+          if (!action && method === "GET") return json(intakes.get(id!));
+          if (!action && method === "PUT")
+            return json(intakes.save(id!, await req.json()));
+          if (action === "process" && method === "POST")
+            return json(await intakes.process(id!));
+          if (action === "receive" && method === "POST")
+            return json(intakes.receive(id!, (await req.json()).revision));
+        }
         if (path === "/api/products" && method === "GET")
           return json(store.products());
         if (path === "/api/purchases" && method === "GET")
           return json(store.inventory.purchases());
         if (path === "/api/purchases" && method === "POST")
-          return json(store.inventory.savePurchase(await req.json()), 201);
+          throw new AppError("Upload supplier invoice photos to receive stock");
         const purchase = path.match(
           /^\/api\/purchases\/([^/]+)(?:\/(receive))?$/,
         );
         if (purchase) {
           const [, id, action] = purchase;
-          if (!action && method === "GET")
-            return json(store.inventory.purchase(id));
+          if (!action && method === "GET") {
+            const purchase = store.inventory.purchase(id);
+            return json({
+              ...purchase,
+              lines: purchase.lines.map((line: any) => ({
+                ...line,
+                product: store.db
+                  .query("SELECT id,name,sku,unit FROM products WHERE id=?")
+                  .get(line.productId),
+              })),
+            });
+          }
           if (!action && method === "PUT")
-            return json(store.inventory.savePurchase(await req.json(), id));
+            throw new AppError(
+              "Review the supplier invoice draft to update it",
+            );
           if (!action && method === "DELETE") {
             store.inventory.deletePurchase(id);
             return json({ ok: true });
           }
           if (action === "receive" && method === "POST")
-            return json(store.inventory.postPurchase(id));
+            throw new AppError(
+              "Confirm the reviewed supplier invoice to add stock",
+            );
         }
         const lot = path.match(/^\/api\/products\/([^/]+)\/lots\/([^/]+)$/);
         if (lot && method === "PUT") {
@@ -156,7 +260,9 @@ const server = Bun.serve({
           return json({ ok: true });
         }
         if (path === "/api/products" && method === "POST")
-          return json({ id: store.saveProduct(await req.json()) }, 201);
+          throw new AppError(
+            "New products are created from reviewed supplier invoices",
+          );
         const product = path.match(
           /^\/api\/products\/([^/]+)(?:\/(adjust|history))?$/,
         );
@@ -167,6 +273,18 @@ const server = Bun.serve({
           if (action === "adjust" && method === "POST") {
             store.adjust(id, await req.json());
             return json({ ok: true });
+          }
+          if (!action && method === "GET") {
+            const p = store.db
+              .query("SELECT * FROM products WHERE id=?")
+              .get(id) as any;
+            if (!p) throw new AppError("Item not found", 404);
+            return json({
+              ...p,
+              stock: p.stock / 1000,
+              minimum: p.minimum / 1000,
+              lots: store.inventory.lots(id),
+            });
           }
           if (!action && method === "PUT") {
             store.saveProduct(await req.json(), id);
@@ -231,30 +349,36 @@ const server = Bun.serve({
       }
       if (!["GET", "HEAD"].includes(method))
         throw new AppError("Not found", 404);
-      const relative = decodeURIComponent(path).replace(/^\/+/, "");
-      const target = resolve(root, "dist", relative);
-      if (
-        !target.startsWith(resolve(root, "dist") + "/") &&
-        target !== resolve(root, "dist")
-      )
-        throw new AppError("Not found", 404);
-      const file = Bun.file(target);
-      if (relative && (await file.exists()))
-        return new Response(file, {
-          headers: { "X-Content-Type-Options": "nosniff" },
+      // Bun remains the public API boundary, retaining real client IP and origin checks.
+      // Next.js serves every page and asset from an internal loopback listener.
+      const frontend = process.env.FRONTEND_URL;
+      if (!frontend)
+        return new Response(
+          "Start Focus with bun run start or bun run sample.",
+          { status: 503 },
+        );
+      const headers = new Headers(req.headers);
+      headers.delete("host");
+      try {
+        const response = await fetch(new URL(path + url.search, frontend), {
+          method,
+          headers,
+          redirect: "manual",
         });
-      if (extname(relative)) throw new AppError("Not found", 404);
-      const index = Bun.file(resolve(root, "dist/index.html"));
-      if (!(await index.exists()))
-        return new Response("Build the web app with bun run build.", {
+        const outgoing = new Headers(response.headers);
+        outgoing.delete("content-encoding");
+        outgoing.delete("content-length");
+        outgoing.set("X-Content-Type-Options", "nosniff");
+        return new Response(response.body, {
+          status: response.status,
+          headers: outgoing,
+        });
+      } catch {
+        return new Response("Workspace is starting. Refresh shortly.", {
           status: 503,
+          headers: { "Retry-After": "3" },
         });
-      return new Response(index, {
-        headers: {
-          "Cache-Control": "no-store",
-          "X-Content-Type-Options": "nosniff",
-        },
-      });
+      }
     } catch (error) {
       if (error instanceof AppError)
         return json({ error: error.message }, error.status);

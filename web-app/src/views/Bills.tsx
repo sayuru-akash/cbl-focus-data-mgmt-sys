@@ -1,3 +1,4 @@
+"use client";
 import { useEffect, useRef, useState } from "react";
 import {
   Upload,
@@ -10,173 +11,12 @@ import {
   Download,
   Box,
 } from "lucide-react";
-import { api, date, type Bill, type Product, type Purchase } from "../api";
+import ProductPicker from "../components/ProductPicker";
+import { api, date, type Bill, type Product } from "../api";
 import { Empty, SearchBox, ErrorText, Modal } from "../components/UI";
-import StockReceipt from "../components/StockReceipt";
-export default function Bills({
-  products,
-  refreshStock,
-}: {
-  products: Product[];
-  refreshStock: () => void;
-}) {
-  const [bills, setBills] = useState<Bill[]>([]),
-    [selected, setSelected] = useState(""),
-    [filter, setFilter] = useState("pending"),
-    [search, setSearch] = useState(""),
-    [error, setError] = useState(""),
-    [notice, setNotice] = useState(""),
-    [busy, setBusy] = useState(false);
-  const file = useRef<HTMLInputElement>(null);
-  const refresh = () =>
-    api<Bill[]>("/bills")
-      .then(setBills)
-      .catch((e) => setError(e.message));
-  useEffect(() => {
-    void refresh();
-    const timer = setInterval(refresh, 5000);
-    return () => clearInterval(timer);
-  }, []);
-  const visible = bills.filter(
-    (b) =>
-      b.status === filter &&
-      `${b.number} ${b.shop} ${b.filename}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-  );
-  async function upload(f: File) {
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      const form = new FormData();
-      form.append("file", f);
-      const result = await api("/upload", { method: "POST", body: form });
-      await refresh();
-      setSelected(result.id);
-      const all = await api<Bill[]>("/bills");
-      setFilter(all.find((b) => b.id === result.id)?.status || "pending");
-      setNotice(
-        result.duplicate
-          ? "Already received. Opened the existing bill."
-          : "File received.",
-      );
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <>
-      <header className="page-header">
-        <div>
-          <h1>Bills</h1>
-          <p>Review incoming bills.</p>
-        </div>
-        <button
-          className="primary"
-          disabled={busy}
-          onClick={() => file.current?.click()}
-        >
-          <Upload size={18} />
-          {busy ? "Importing…" : "Import file"}
-        </button>
-        <input
-          ref={file}
-          type="file"
-          hidden
-          onChange={(e) => {
-            if (e.target.files?.[0]) void upload(e.target.files[0]);
-            e.target.value = "";
-          }}
-        />
-      </header>
-      <ErrorText message={error} />
-      {notice && (
-        <p className="notice" role="status">
-          {notice}
-        </p>
-      )}
-      <div className="tabs">
-        {["pending", "accepted", "rejected"].map((s) => (
-          <button
-            key={s}
-            className={s === filter ? "active" : ""}
-            onClick={() => {
-              setFilter(s);
-              setSelected("");
-            }}
-          >
-            {s[0].toUpperCase() + s.slice(1)}
-            {s === "pending" && (
-              <span className="count">
-                {bills.filter((b) => b.status === s).length}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-      <section className={"inbox " + (selected ? "has-selection" : "")}>
-        <aside className="bill-list">
-          <SearchBox value={search} onChange={setSearch} />
-          {visible.length ? (
-            visible.map((b) => (
-              <button
-                key={b.id}
-                className={"bill-row " + (selected === b.id ? "selected" : "")}
-                onClick={() => setSelected(b.id)}
-              >
-                <div>
-                  <strong>{b.shop || b.filename}</strong>
-                  <span>{b.number ? `#${b.number}` : "Needs review"}</span>
-                </div>
-                <small>
-                  {b.receipt?.date || date(b.received)}
-                  {b.receipt?.total !== null && b.receipt?.total !== undefined
-                    ? ` · Rs ${b.receipt.total.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
-                    : ""}
-                </small>
-              </button>
-            ))
-          ) : (
-            <Empty
-              icon={<File />}
-              heading={search ? "No matching bills" : "No bills yet"}
-            >
-              {filter === "pending" && !search
-                ? "Print a bill to get started."
-                : "Bills will appear here."}
-            </Empty>
-          )}
-        </aside>
-        <div className="bill-detail">
-          {selected ? (
-            <BillReview
-              key={selected}
-              id={selected}
-              products={products}
-              onClose={() => setSelected("")}
-              onUpdate={() => {
-                void refresh();
-                refreshStock();
-              }}
-            />
-          ) : (
-            <Empty icon={<FileText />} heading="Select a bill">
-              Review items before accepting.
-            </Empty>
-          )}
-        </div>
-      </section>
-      <footer className="page-footer">
-        <Box size={18} />
-        Stock changes only after acceptance.
-      </footer>
-    </>
-  );
-}
-function BillReview({
+import InvoiceIntake from "../components/InvoiceIntake";
+
+export default function BillReview({
   id,
   products,
   onClose,
@@ -193,7 +33,7 @@ function BillReview({
     [source, setSource] = useState(true),
     [saved, setSaved] = useState("");
   const [issues, setIssues] = useState<any[] | null>(null),
-    [restock, setRestock] = useState<Purchase | null>(null);
+    [restock, setRestock] = useState(false);
   useEffect(() => {
     api<Bill>("/bills/" + id)
       .then((received) => {
@@ -341,14 +181,11 @@ function BillReview({
           {editable && (
             <button
               className="text-button"
-              disabled={busy || !products.length}
+              disabled={busy}
               onClick={() =>
                 setBill({
                   ...bill,
-                  items: [
-                    ...bill.items,
-                    { productId: products[0]?.id || "", quantity: 1 },
-                  ],
+                  items: [...bill.items, { productId: "", quantity: 1 }],
                 })
               }
             >
@@ -357,9 +194,6 @@ function BillReview({
             </button>
           )}
         </div>
-        {!products.length && editable && (
-          <p className="muted">Receive missing stock when accepting.</p>
-        )}
         {bill.items.map((item, i) => {
           const original =
             item.sourceLine === undefined
@@ -386,30 +220,19 @@ function BillReview({
                 </div>
               )}
               <div className="line-item">
-                <select
-                  aria-label={`Item ${i + 1}`}
+                <ProductPicker
+                  label={`Item ${i + 1}`}
                   disabled={!editable || busy}
                   value={item.productId}
-                  onChange={(e) =>
+                  onChange={(productId) =>
                     setBill({
                       ...bill,
                       items: bill.items.map((v, j) =>
-                        i === j ? { ...v, productId: e.target.value } : v,
+                        i === j ? { ...v, productId } : v,
                       ),
                     })
                   }
-                >
-                  <option value="">Choose stock item</option>
-                  {item.productId &&
-                    !products.some((p) => p.id === item.productId) && (
-                      <option value={item.productId}>Archived item</option>
-                    )}
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} · {p.sku} ({p.stock} {p.unit})
-                    </option>
-                  ))}
-                </select>
+                />
                 <input
                   type="number"
                   aria-label={`Quantity ${i + 1}`}
@@ -541,67 +364,22 @@ function BillReview({
               disabled={issues.some(
                 (i) => i.kind === "unit" || i.kind === "price",
               )}
-              onClick={() =>
-                setRestock({
-                  number: "",
-                  supplier: "",
-                  received: new Date().toLocaleDateString("en-CA"),
-                  note: "",
-                  lines: issues.map((issue) => ({
-                    productId: issue.productId || "",
-                    ...(!issue.productId
-                      ? {
-                          newProduct: {
-                            sku: "",
-                            name: issue.name,
-                            unit: issue.unit || "PKT",
-                          },
-                        }
-                      : {}),
-                    quantity: issue.shortage,
-                    mrp: issue.mrp ?? null,
-                    costPrice: null,
-                    billLine: issue.line,
-                  })),
-                })
-              }
+              onClick={() => setRestock(true)}
             >
-              Receive stock
+              Receive invoice
             </button>
           </div>
         </Modal>
       )}
       {restock && (
-        <StockReceipt
+        <InvoiceIntake
           products={products}
-          initial={restock}
-          onClose={() => setRestock(null)}
-          onSaved={async (purchase, received) => {
-            setRestock(null);
-            setIssues(null);
-            try {
-              if (received) {
-                const updated = {
-                  ...bill,
-                  items: bill.items.map((item, index) => {
-                    const line = purchase.lines.find(
-                      (l) => l.billLine === index,
-                    );
-                    return line ? { ...item, productId: line.productId } : item;
-                  }),
-                };
-                await api(`/bills/${id}`, {
-                  method: "PUT",
-                  body: JSON.stringify(updated),
-                });
-                setBill(await api<Bill>(`/bills/${id}`));
-                setSaved("Stock received. Ready to accept.");
-                onUpdate();
-              } else setSaved("Stock bill saved as a draft.");
-            } catch (e: any) {
-              setError(e.message);
-              onUpdate();
-            }
+          onClose={() => setRestock(false)}
+          onSaved={() => {
+            onUpdate();
+            setSaved(
+              "Invoice draft updated. Review stock mappings before accepting.",
+            );
           }}
         />
       )}

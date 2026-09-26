@@ -10,10 +10,15 @@ export async function api<T = any>(
         : { "Content-Type": "application/json", ...options.headers },
   });
   const data = await r.json();
-  if (!r.ok) throw new Error(data.error || "Request failed");
+  if (!r.ok) {
+    if (r.status === 401 && path !== "/login" && typeof window !== "undefined")
+      window.dispatchEvent(new Event("focus-session-expired"));
+    throw new Error(data.error || "Request failed");
+  }
   return data;
 }
 export type Product = {
+  archived?: number;
   id: string;
   sku: string;
   name: string;

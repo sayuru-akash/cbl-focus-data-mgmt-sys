@@ -1,3 +1,4 @@
+import * as Dialog from "@radix-ui/react-dialog";
 import type { ReactNode } from "react";
 import { X, Search } from "lucide-react";
 export function Empty({
@@ -48,47 +49,38 @@ export function Modal({
   wide?: boolean;
 }) {
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <section
-        className={"modal" + (wide ? " modal-wide" : "")}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-        onWheelCapture={() => {
-          const active = document.activeElement;
-          if (active instanceof HTMLInputElement && active.type === "number")
-            active.blur();
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") onClose();
-          if (e.key === "Tab") {
-            const controls = e.currentTarget.querySelectorAll<HTMLElement>(
-              "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]",
-            );
-            const first = controls[0],
-              last = controls[controls.length - 1];
-            if (e.shiftKey && document.activeElement === first) {
-              e.preventDefault();
-              last?.focus();
-            } else if (!e.shiftKey && document.activeElement === last) {
-              e.preventDefault();
-              first?.focus();
-            }
-          }
-        }}
-      >
-        <header>
-          <h2>{title}</h2>
-          <button className="icon-button" aria-label="Close" onClick={onClose}>
-            <X size={20} />
-          </button>
-        </header>
-        {children}
-      </section>
-    </div>
+    <Dialog.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className="modal-backdrop" />
+        <Dialog.Content
+          className={"modal radix-modal" + (wide ? " modal-wide" : "")}
+          aria-describedby={undefined}
+          onPointerDownOutside={(e) => e.preventDefault()}
+        >
+          <header>
+            <Dialog.Title asChild>
+              <h2>{title}</h2>
+            </Dialog.Title>
+            <button
+              className="icon-button"
+              aria-label="Close"
+              onClick={onClose}
+            >
+              <X size={20} />
+            </button>
+          </header>
+          {children}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
+
 export function ErrorText({ message }: { message: string }) {
   return message ? (
     <p className="error" role="alert">

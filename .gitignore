@@ -9,3 +9,7 @@ build/
 local.properties
 *.apk
 android-connector/local-transfer.properties
+
+web-app/.next/
+web-app/next-env.d.ts
+*.tsbuildinfo

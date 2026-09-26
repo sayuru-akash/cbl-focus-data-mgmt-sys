@@ -96,7 +96,9 @@ export default function Connection() {
               <li>Install the receiver on a second Android device.</li>
               <li>Enter the server address and connector key.</li>
               <li>Tap Use printer name SPP-R310, then pair with the tablet.</li>
-              <li>Start the receiver. In CBL, slide 3 Inches on that device.</li>
+              <li>
+                Start the receiver. In CBL, slide 3 Inches on that device.
+              </li>
             </ol>
             <p className="muted">
               Compatibility with CBL Focus is awaiting a device test.
