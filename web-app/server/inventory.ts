@@ -115,7 +115,11 @@ export class Inventory {
           .get(lotId))
       )
         fail("Used batches keep their original prices");
-      if (await this.store.db.query("SELECT id FROM bill_returns WHERE lot_id=?").get(lotId))
+      if (
+        await this.store.db
+          .query("SELECT id FROM bill_returns WHERE lot_id=?")
+          .get(lotId)
+      )
         fail("Returned batches keep their printed MRP");
       if (lot.purchase_id)
         fail("Received stock bills keep their original prices");
@@ -320,12 +324,29 @@ export class Inventory {
   async plan(bill: any) {
     const remaining = new Map<string, number>(),
       allocations: any[] = [],
-      issues: any[] = billReviewErrors(bill).map(message => ({ kind: "review", message, name: "Check the print" }));
+      issues: any[] = billReviewErrors(bill).map((message) => ({
+        kind: "review",
+        message,
+        name: "Check the print",
+      }));
     const returnedLots = bill.items.flatMap((item: any, index: number) => {
-      if (lineKind(bill, item) !== "fresh_return" || (!item.productId && !item.createReturnProduct)) return [];
+      if (
+        lineKind(bill, item) !== "fresh_return" ||
+        (!item.productId && !item.createReturnProduct)
+      )
+        return [];
       const source = bill.receipt.items[item.sourceLine];
-      return [{ id: `return:${index}`, product_id: item.productId || `new-return:${index}`, remaining: units(item.quantity),
-        mrp: cents(source.mrp ?? item.mrp), cost: null, received: new Date().toISOString().slice(0, 10), created: new Date().toISOString() }];
+      return [
+        {
+          id: `return:${index}`,
+          product_id: item.productId || `new-return:${index}`,
+          remaining: units(item.quantity),
+          mrp: cents(source.mrp ?? item.mrp),
+          cost: null,
+          received: new Date().toISOString().slice(0, 10),
+          created: new Date().toISOString(),
+        },
+      ];
     });
     for (let index = 0; index < bill.items.length; index++) {
       const item = bill.items[index],
@@ -335,9 +356,14 @@ export class Inventory {
             : bill.receipt?.items[item.sourceLine];
       const kind = lineKind(bill, item);
       if (kind === "market_return" && !item.productId) continue;
-      const product = item.createReturnProduct && kind === "fresh_return" && !item.productId
-        ? { id: `new-return:${index}`, name: source.name, unit: source.unit }
-        : await this.store.product(item.productId),
+      const product =
+          item.createReturnProduct && kind === "fresh_return" && !item.productId
+            ? {
+                id: `new-return:${index}`,
+                name: source.name,
+                unit: source.unit,
+              }
+            : await this.store.product(item.productId),
         required = units(item.quantity),
         mrp = cents(source?.mrp ?? item.mrp);
       const name = product?.name || source?.name || `Item ${index + 1}`;
@@ -351,7 +377,10 @@ export class Inventory {
           shortage: required / 1000,
           mrp: mrp === null ? null : mrp / 100,
           unit: source?.unit || "pcs",
-          message: kind === "fresh_return" ? "Choose or create the item to receive this fresh return." : "Choose a stock item for this line.",
+          message:
+            kind === "fresh_return"
+              ? "Choose or create the item to receive this fresh return."
+              : "Choose a stock item for this line.",
         });
         continue;
       }
@@ -370,7 +399,14 @@ export class Inventory {
       }
       if (kind === "market_return") continue;
       if (kind === "fresh_return") {
-        if (mrp === null) issues.push({line: index, kind: "price", name, message: "Enter the MRP for this fresh return.", shortage: 0});
+        if (mrp === null)
+          issues.push({
+            line: index,
+            kind: "price",
+            name,
+            message: "Enter the MRP for this fresh return.",
+            shortage: 0,
+          });
         continue;
       }
       const lots = (await this.store.db
@@ -378,8 +414,14 @@ export class Inventory {
           "SELECT * FROM stock_lots WHERE product_id=? AND remaining>0 ORDER BY received,created,rowid",
         )
         .all(product.id)) as any[];
-      lots.push(...returnedLots.filter((lot: any) => lot.product_id === product.id));
-      lots.sort((a, b) => a.received.localeCompare(b.received) || a.created.localeCompare(b.created));
+      lots.push(
+        ...returnedLots.filter((lot: any) => lot.product_id === product.id),
+      );
+      lots.sort(
+        (a, b) =>
+          a.received.localeCompare(b.received) ||
+          a.created.localeCompare(b.created),
+      );
       if (mrp === null && new Set(lots.map((l) => l.mrp)).size > 1) {
         issues.push({
           line: index,
@@ -430,54 +472,119 @@ export class Inventory {
     for (const item of bill.items) {
       if (!item.createReturnProduct) continue;
       const source = bill.receipt?.items[item.sourceLine];
-      if (source?.kind !== "fresh_return" || item.productId) fail("Invalid new return item");
-      const exact = await this.store.db.query("SELECT id FROM products WHERE match_name=? AND upper(unit)=? AND archived=0 LIMIT 2").all(productIdentity(source.name), normalize(source.unit));
-      if (exact.length > 1) fail("Several stock items match this return. Choose the correct item.");
-      item.productId = exact[0]?.id || await this.store.saveProduct({name: source.name, unit: source.unit, stock: 0});
+      if (source?.kind !== "fresh_return" || item.productId)
+        fail("Invalid new return item");
+      const exact = await this.store.db
+        .query(
+          "SELECT id FROM products WHERE match_name=? AND upper(unit)=? AND archived=0 LIMIT 2",
+        )
+        .all(productIdentity(source.name), normalize(source.unit));
+      if (exact.length > 1)
+        fail("Several stock items match this return. Choose the correct item.");
+      item.productId =
+        exact[0]?.id ||
+        (await this.store.saveProduct({
+          name: source.name,
+          unit: source.unit,
+          stock: 0,
+        }));
       delete item.createReturnProduct;
     }
-    await this.store.db.query("UPDATE bills SET items=? WHERE id=?").run(JSON.stringify(bill.items), bill.id);
+    await this.store.db
+      .query("UPDATE bills SET items=? WHERE id=?")
+      .run(JSON.stringify(bill.items), bill.id);
     for (const item of bill.items) {
-      if (item.productId && !(await this.store.product(item.productId))) fail("A stock item is no longer available");
+      if (item.productId && !(await this.store.product(item.productId)))
+        fail("A stock item is no longer available");
     }
     const { issues, allocations } = await this.plan(bill);
-    if (issues.length) fail(issues[0].message || `Not enough stock: ${issues[0].name}`);
+    if (issues.length)
+      fail(issues[0].message || `Not enough stock: ${issues[0].name}`);
     const returnIds = new Map<string, string>();
     // Fresh returns are received before outgoing allocations, in this same transaction.
     for (let index = 0; index < bill.items.length; index++) {
-      const item = bill.items[index], kind = lineKind(bill, item);
+      const item = bill.items[index],
+        kind = lineKind(bill, item);
       if (kind !== "fresh_return" && kind !== "market_return") continue;
-      const source = bill.receipt.items[item.sourceLine], quantity = units(item.quantity), mrp = cents(source.mrp ?? item.mrp);
+      const source = bill.receipt.items[item.sourceLine],
+        quantity = units(item.quantity),
+        mrp = cents(source.mrp ?? item.mrp);
       let lotId: string | null = null;
       if (kind === "fresh_return") {
         // The print gives a selling rate, not acquisition cost. Keep unknown cost null.
         lotId = await this.addLot(item.productId, quantity, null, mrp);
         returnIds.set(`return:${index}`, lotId);
-        await this.store.db.query("UPDATE products SET stock=stock+? WHERE id=?").run(quantity, item.productId);
-        await this.store.movement(item.productId, quantity, `Fresh return · Bill ${bill.number}`, bill.id);
+        await this.store.db
+          .query("UPDATE products SET stock=stock+? WHERE id=?")
+          .run(quantity, item.productId);
+        await this.store.movement(
+          item.productId,
+          quantity,
+          `Fresh return · Bill ${bill.number}`,
+          bill.id,
+        );
       }
-      await this.store.db.query("INSERT INTO bill_returns VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").run(
-        randomUUID(), bill.id, index, item.productId || null, kind, source.name, source.unit, quantity, mrp,
-        cents(source.amount), lotId, new Date().toISOString(),
-      );
+      await this.store.db
+        .query("INSERT INTO bill_returns VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+        .run(
+          randomUUID(),
+          bill.id,
+          index,
+          item.productId || null,
+          kind,
+          source.name,
+          source.unit,
+          quantity,
+          mrp,
+          cents(source.amount),
+          lotId,
+          new Date().toISOString(),
+        );
     }
     for (const a of allocations) {
       const lotId = returnIds.get(a.lotId) || a.lotId;
-      const result = await this.store.db.query("UPDATE stock_lots SET remaining=remaining-? WHERE id=? AND remaining>=?").run(a.quantity, lotId, a.quantity);
-      if (result.changes !== 1) fail("Stock changed. Review availability again.");
-      await this.store.db.query("INSERT INTO allocations VALUES (?,?,?,?,?,?,?,?)").run(
-        randomUUID(), bill.id, a.line, lotId, a.quantity, a.cost, a.mrp, a.sellingPrice,
-      );
+      const result = await this.store.db
+        .query(
+          "UPDATE stock_lots SET remaining=remaining-? WHERE id=? AND remaining>=?",
+        )
+        .run(a.quantity, lotId, a.quantity);
+      if (result.changes !== 1)
+        fail("Stock changed. Review availability again.");
+      await this.store.db
+        .query("INSERT INTO allocations VALUES (?,?,?,?,?,?,?,?)")
+        .run(
+          randomUUID(),
+          bill.id,
+          a.line,
+          lotId,
+          a.quantity,
+          a.cost,
+          a.mrp,
+          a.sellingPrice,
+        );
     }
     for (const item of bill.items) {
       const kind = lineKind(bill, item);
       if (kind === "sale" || kind === "free") {
         const qty = units(item.quantity);
-        await this.store.db.query("UPDATE products SET stock=stock-? WHERE id=?").run(qty, item.productId);
-        await this.store.movement(item.productId, -qty, `${kind === "free" ? "Free item · " : ""}Bill ${bill.number}`, bill.id);
+        await this.store.db
+          .query("UPDATE products SET stock=stock-? WHERE id=?")
+          .run(qty, item.productId);
+        await this.store.movement(
+          item.productId,
+          -qty,
+          `${kind === "free" ? "Free item · " : ""}Bill ${bill.number}`,
+          bill.id,
+        );
       }
-      const source = item.sourceLine === undefined ? null : bill.receipt?.items[item.sourceLine];
-      if (source && item.productId) await this.store.db.query("INSERT OR REPLACE INTO product_aliases VALUES (?,?,?)").run(normalize(source.name), normalize(source.unit), item.productId);
+      const source =
+        item.sourceLine === undefined
+          ? null
+          : bill.receipt?.items[item.sourceLine];
+      if (source && item.productId)
+        await this.store.db
+          .query("INSERT OR REPLACE INTO product_aliases VALUES (?,?,?)")
+          .run(normalize(source.name), normalize(source.unit), item.productId);
     }
   }
   async adjustLots(productId: string, delta: number, input: any) {

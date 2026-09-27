@@ -432,7 +432,8 @@ export async function handleApi(
         const [, id, action] = bill;
         if (action === "restore" && method === "POST") {
           const input = await req.json();
-          if (!Number.isInteger(input.revision)) throw new AppError("Reload this bill before continuing.", 409);
+          if (!Number.isInteger(input.revision))
+            throw new AppError("Reload this bill before continuing.", 409);
           return json(await store.restoreBillPrint(id, input.revision));
         }
         if (action === "availability" && method === "GET")

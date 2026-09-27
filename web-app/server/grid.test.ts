@@ -152,10 +152,10 @@ test("customer dates and counts use approved bills, excluding later pending prin
       shop: "Shop",
       items: [{ productId: p, quantity: 1 }],
     });
+    if (accepted) await s.decide(id, "accepted");
     await s.db
       .query("UPDATE bills SET customer_id=?,receipt=? WHERE id=?")
       .run("C1", JSON.stringify({ date }), id);
-    if (accepted) await s.decide(id, "accepted");
   }
   const row = (await grid(s, "customers", new URLSearchParams()))
     .rows[0] as any;

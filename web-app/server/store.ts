@@ -1,7 +1,12 @@
 import { mapAsync } from "./db";
 import { openDatabase, type DataConnection } from "./db";
 import { createHash, randomUUID } from "node:crypto";
-import { decodePrint, parseReceipt, RECEIPT_VERSION, billReviewErrors } from "./receipt";
+import {
+  decodePrint,
+  parseReceipt,
+  RECEIPT_VERSION,
+  billReviewErrors,
+} from "./receipt";
 import { Inventory, cents, productIdentity } from "./inventory";
 export class AppError extends Error {
   constructor(
@@ -97,17 +102,29 @@ export class Store {
       }[];
       for (const bill of pending) await this.extractReceipt(bill.id);
       // Upgrade only untouched drafts. Never rewrite an approved ledger or user edits.
-      const older = await this.db.query("SELECT id,receipt,items,revision FROM bills WHERE status='pending' AND revision=1 AND receipt IS NOT NULL").all();
+      const older = await this.db
+        .query(
+          "SELECT id,receipt,items,revision FROM bills WHERE status='pending' AND revision=1 AND receipt IS NOT NULL",
+        )
+        .all();
       for (const bill of older) {
         const receipt = JSON.parse(bill.receipt || "null");
         if (!receipt || receipt.version === RECEIPT_VERSION) continue;
-        await this.db.query("INSERT INTO bill_parse_history VALUES (?,?,?,?,?,?)").run(
-          randomUUID(), bill.id, bill.receipt, bill.items, bill.revision, new Date().toISOString(),
-        );
+        await this.db
+          .query("INSERT INTO bill_parse_history VALUES (?,?,?,?,?,?)")
+          .run(
+            randomUUID(),
+            bill.id,
+            bill.receipt,
+            bill.items,
+            bill.revision,
+            new Date().toISOString(),
+          );
         await this.extractReceipt(bill.id, true);
-        await this.db.query("UPDATE bills SET revision=revision+1 WHERE id=?").run(bill.id);
+        await this.db
+          .query("UPDATE bills SET revision=revision+1 WHERE id=?")
+          .run(bill.id);
       }
-
     })();
   }
   private async extractReceipt(id: string, refresh = false) {
@@ -149,14 +166,14 @@ export class Store {
         );
       else number = receipt.number;
       items = JSON.stringify(
-          await mapAsync(receipt.items, async (item, sourceLine) => ({
-            productId: await this.inventory.match(item.name, item.unit),
-            quantity: item.quantity,
-            sourceLine,
-            mrp: item.mrp ?? null,
-            sellingPrice: item.rate,
-          })),
-        );
+        await mapAsync(receipt.items, async (item, sourceLine) => ({
+          productId: await this.inventory.match(item.name, item.unit),
+          quantity: item.quantity,
+          sourceLine,
+          mrp: item.mrp ?? null,
+          sellingPrice: item.rate,
+        })),
+      );
     }
     await this.db
       .query(
@@ -333,9 +350,9 @@ export class Store {
     })();
   }
   async archive(id: string) {
-    await this.db.transaction(async()=>{
-      if(!(await this.product(id)))throw new AppError('Item not found',404);
-      await this.db.query('UPDATE products SET archived=1 WHERE id=?').run(id);
+    await this.db.transaction(async () => {
+      if (!(await this.product(id))) throw new AppError("Item not found", 404);
+      await this.db.query("UPDATE products SET archived=1 WHERE id=?").run(id);
     })();
   }
   async history(id: string) {
@@ -347,10 +364,22 @@ export class Store {
         .all(id)
     ).map((r: any) => ({ ...r, delta: r.delta / 1000 }));
   }
-  async ingest(raw: Uint8Array, filename: string, mime: string, source: string) {
-    return this.db.transaction(async () => this.ingestLocked(raw,filename,mime,source))();
+  async ingest(
+    raw: Uint8Array,
+    filename: string,
+    mime: string,
+    source: string,
+  ) {
+    return this.db.transaction(async () =>
+      this.ingestLocked(raw, filename, mime, source),
+    )();
   }
-  private async ingestLocked(raw: Uint8Array, filename: string, mime: string, source: string) {
+  private async ingestLocked(
+    raw: Uint8Array,
+    filename: string,
+    mime: string,
+    source: string,
+  ) {
     if (!raw.length) fail("The file is empty");
     if (raw.length > 10 * 1024 * 1024)
       throw new AppError("Maximum file size is 10 MB", 413);
@@ -429,11 +458,22 @@ export class Store {
     return this.db.transaction(async () => {
       const b = await this.bill(id);
       if (b.status !== "pending") fail("This bill is already closed");
-      if (revision !== b.revision) throw new AppError("This bill changed in another window. Reload it before continuing.", 409);
+      if (revision !== b.revision)
+        throw new AppError(
+          "This bill changed in another window. Reload it before continuing.",
+          409,
+        );
       if (!b.receipt) fail("No recognized print to restore");
-      await this.db.query("INSERT INTO bill_parse_history VALUES (?,?,?,?,?,?)").run(
-        randomUUID(), id, JSON.stringify(b.receipt), JSON.stringify(b.items), b.revision, new Date().toISOString(),
-      );
+      await this.db
+        .query("INSERT INTO bill_parse_history VALUES (?,?,?,?,?,?)")
+        .run(
+          randomUUID(),
+          id,
+          JSON.stringify(b.receipt),
+          JSON.stringify(b.items),
+          b.revision,
+          new Date().toISOString(),
+        );
       await this.extractReceipt(id, true);
       const refreshed = await this.bill(id);
       // Retain unambiguous product mappings, matched by printed identity rather than shifted index.
@@ -441,11 +481,21 @@ export class Store {
         const source = refreshed.receipt.items[item.sourceLine];
         const matches = b.items.filter((old: any) => {
           const previous = b.receipt.items[old.sourceLine];
-          return old.productId && previous && previous.name === source.name && previous.unit === source.unit && previous.mrp === source.mrp && (previous.kind || "sale") === source.kind;
+          return (
+            old.productId &&
+            previous &&
+            previous.name === source.name &&
+            previous.unit === source.unit &&
+            previous.mrp === source.mrp &&
+            (previous.kind || "sale") === source.kind
+          );
         });
-        if (new Set(matches.map((m: any) => m.productId)).size === 1) item.productId = matches[0].productId;
+        if (new Set(matches.map((m: any) => m.productId)).size === 1)
+          item.productId = matches[0].productId;
       }
-      await this.db.query("UPDATE bills SET items=?,revision=revision+1 WHERE id=?").run(JSON.stringify(refreshed.items), id);
+      await this.db
+        .query("UPDATE bills SET items=?,revision=revision+1 WHERE id=?")
+        .run(JSON.stringify(refreshed.items), id);
       return { revision: b.revision + 1 };
     })();
   }
@@ -476,7 +526,11 @@ export class Store {
           : originalBill.receipt.items[sourceLine];
       const mrp = cents(source?.mrp ?? item.mrp),
         sellingPrice = cents(source?.rate ?? item.sellingPrice);
-      if (item.createReturnProduct && (source?.kind !== "fresh_return" || productId)) fail("New return items are only allowed for unmapped fresh returns");
+      if (
+        item.createReturnProduct &&
+        (source?.kind !== "fresh_return" || productId)
+      )
+        fail("New return items are only allowed for unmapped fresh returns");
       return {
         productId,
         ...(item.createReturnProduct ? { createReturnProduct: true } : {}),

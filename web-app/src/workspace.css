@@ -971,14 +971,64 @@ button.primary:hover {
   min-width: 0;
 }
 
-.bill-accounting { margin: 16px 0; padding: 16px; border: 1px solid #dbe5f2; border-radius: 12px; background: #f8faff; }
-.bill-accounting > div { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; font-size: 13px; }
-.bill-accounting dt { color: #52627a; }
-.bill-accounting dd { margin: 0; font-variant-numeric: tabular-nums; }
-.bill-accounting .bill-net { border-top: 1px solid #dbe5f2; margin-top: 8px; padding-top: 12px; font-weight: 700; font-size: 15px; }
-.bill-line-effect { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; font-size:12px; color:#52627a; }
-.bill-line-effect > span { font-weight:600; color:#2456a6; }
-.receipt-kind-fresh_return, .receipt-kind-market_return, .receipt-kind-free { border-left:3px solid #8bb3f4; padding-left:12px; }
-.bill-quantity { white-space:nowrap; font-size:14px; }
-.new-return-item { display:flex; flex-direction:column; gap:4px; flex:1; }
-.new-return-item small { color:#52627a; }
+.bill-accounting {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid #dbe5f2;
+  border-radius: 12px;
+  background: #f8faff;
+}
+.bill-accounting > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.bill-accounting dt {
+  color: #52627a;
+}
+.bill-accounting dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.bill-accounting .bill-net {
+  border-top: 1px solid #dbe5f2;
+  margin-top: 8px;
+  padding-top: 12px;
+  font-weight: 700;
+  font-size: 15px;
+}
+.bill-line-effect {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #52627a;
+}
+.bill-line-effect > span {
+  font-weight: 600;
+  color: #2456a6;
+}
+.receipt-kind-fresh_return,
+.receipt-kind-market_return,
+.receipt-kind-free {
+  border-left: 3px solid #8bb3f4;
+  padding-left: 12px;
+}
+.bill-quantity {
+  white-space: nowrap;
+  font-size: 14px;
+}
+.new-return-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+.new-return-item small {
+  color: #52627a;
+}

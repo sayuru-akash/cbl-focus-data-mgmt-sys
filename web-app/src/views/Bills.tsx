@@ -17,7 +17,11 @@ import { api, date, type Bill, type Product } from "../api";
 import { Empty, SearchBox, ErrorText, Modal } from "../components/UI";
 import InvoiceIntake from "../components/InvoiceIntake";
 import { billReviewErrors, lineKindLabel } from "../../server/receipt";
-const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = (n: number) =>
+  n.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 export type BillNavigationGuard = ((next: () => void) => void) | null;
 const unsavedBills = new Map<string, Bill>();
@@ -202,16 +206,24 @@ export default function BillReview({
       </div>
     );
   const editable = bill.status === "pending";
-  const reviewErrors = billReviewErrors(bill);
+  const reviewErrors = editable ? billReviewErrors(bill) : bill.receipt?.warnings || [];
   const accounting = bill.receipt?.accounting;
   async function restorePrint() {
     if (!bill) return;
-    setBusy(true); setError("");
+    setBusy(true);
+    setError("");
     try {
-      await api(`/bills/${id}/restore`, { method: "POST", body: JSON.stringify({revision: bill.revision}) });
-      apply(await api(`/bills/${id}`)); onUpdate();
-    } catch (e: any) { setError(e.message); }
-    finally { setBusy(false); }
+      await api(`/bills/${id}/restore`, {
+        method: "POST",
+        body: JSON.stringify({ revision: bill.revision }),
+      });
+      apply(await api(`/bills/${id}`));
+      onUpdate();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
   }
   return (
     <>
@@ -308,18 +320,58 @@ export default function BillReview({
             ))}
           </>
         )}
-        {accounting && <dl className="bill-accounting" aria-label="Bill totals">
-          <div><dt>Gross</dt><dd>Rs {money(accounting.gross)}</dd></div>
-          {accounting.discount !== 0 && <div><dt>Discount</dt><dd>- {money(accounting.discount)}</dd></div>}
-          {accounting.skuDiscount !== 0 && <div><dt>SKU discount</dt><dd>- {money(accounting.skuDiscount)}</dd></div>}
-          {accounting.returnGross !== 0 && <>
-            <div><dt>Return value</dt><dd>{money(accounting.returnGross)}</dd></div>
-            {accounting.returnReversal !== 0 && <div><dt>Reverse GRTS</dt><dd>- {money(accounting.returnReversal)}</dd></div>}
-            <div><dt>Return credit</dt><dd>- {money(accounting.returns)}</dd></div>
-          </>}
-          <div className="bill-net"><dt>Net payable</dt><dd>Rs {money(accounting.calculatedNet)}</dd></div>
-          {accounting.difference !== 0 && <div className="error"><dt>Difference from print</dt><dd>{accounting.difference === null ? "Missing total" : money(accounting.difference)}</dd></div>}
-        </dl>}
+        {accounting && (
+          <dl className="bill-accounting" aria-label="Bill totals">
+            <div>
+              <dt>Gross</dt>
+              <dd>Rs {money(accounting.gross)}</dd>
+            </div>
+            {accounting.discount !== 0 && (
+              <div>
+                <dt>Discount</dt>
+                <dd>- {money(accounting.discount)}</dd>
+              </div>
+            )}
+            {accounting.skuDiscount !== 0 && (
+              <div>
+                <dt>SKU discount</dt>
+                <dd>- {money(accounting.skuDiscount)}</dd>
+              </div>
+            )}
+            {accounting.returnGross !== 0 && (
+              <>
+                <div>
+                  <dt>Return value</dt>
+                  <dd>{money(accounting.returnGross)}</dd>
+                </div>
+                {accounting.returnReversal !== 0 && (
+                  <div>
+                    <dt>Reverse GRTS</dt>
+                    <dd>- {money(accounting.returnReversal)}</dd>
+                  </div>
+                )}
+                <div>
+                  <dt>Return credit</dt>
+                  <dd>- {money(accounting.returns)}</dd>
+                </div>
+              </>
+            )}
+            <div className="bill-net">
+              <dt>Net payable</dt>
+              <dd>Rs {money(accounting.calculatedNet)}</dd>
+            </div>
+            {accounting.difference !== 0 && (
+              <div className="error">
+                <dt>Difference from print</dt>
+                <dd>
+                  {accounting.difference === null
+                    ? "Missing total"
+                    : money(accounting.difference)}
+                </dd>
+              </div>
+            )}
+          </dl>
+        )}
         <div className="source-title">
           <button className="text-button" onClick={() => setSource(!source)}>
             {source ? "Hide source" : "Show source"}
@@ -362,7 +414,15 @@ export default function BillReview({
         </div>
         <div className="section-title">
           <h3>Items</h3>
-          {editable && bill.receipt && reviewErrors.length > 0 && <button className="text-button" disabled={busy} onClick={() => navigate(() => void restorePrint())}>Restore printed items</button>}
+          {editable && bill.receipt && reviewErrors.length > 0 && (
+            <button
+              className="text-button"
+              disabled={busy}
+              onClick={() => navigate(() => void restorePrint())}
+            >
+              Restore printed items
+            </button>
+          )}
           {editable && !bill.receipt && (
             <button
               className="text-button"
@@ -388,7 +448,19 @@ export default function BillReview({
           const market = kind === "market_return";
           return (
             <div className={"receipt-item receipt-kind-" + kind} key={i}>
-              <div className="bill-line-effect"><span>{lineKindLabel[kind]}{market && original?.section === "EXPIRY" ? " · Expired" : ""}</span><small>{kind === "fresh_return" ? "+ Returns to stock" : market ? "No sellable stock added" : "Deducts stock"}</small></div>
+              <div className="bill-line-effect">
+                <span>
+                  {lineKindLabel[kind]}
+                  {market && original?.section === "EXPIRY" ? " · Expired" : ""}
+                </span>
+                <small>
+                  {kind === "fresh_return"
+                    ? "+ Returns to stock"
+                    : market
+                      ? "No sellable stock added"
+                      : "Deducts stock"}
+                </small>
+              </div>
               {original && (
                 <div className="receipt-item-title">
                   <div>
@@ -408,41 +480,58 @@ export default function BillReview({
                 </div>
               )}
               <div className="line-item">
-                {!market && !item.createReturnProduct && <ProductPicker
-                  label={`Item ${i + 1}`}
-                  showStock={kind !== "fresh_return"}
-                  unit={original?.unit}
-                  mrp={original?.mrp ?? item.mrp}
-                  disabled={!editable || busy}
-                  value={item.productId}
-                  onChange={(productId) =>
-                    setBill({
-                      ...bill,
-                      items: bill.items.map((v, j) =>
-                        i === j ? { ...v, productId, createReturnProduct: false } : v,
-                      ),
-                    })
-                  }
-                />}
-                {item.createReturnProduct && <div className="new-return-item"><strong>{original?.name}</strong><small>New item on acceptance · MRP {original?.mrp?.toFixed(2)}</small></div>}
-                {original ? <strong className="bill-quantity">{item.quantity} {original.unit}</strong> : <input
-                  type="number"
-                  aria-label={`Quantity ${i + 1}`}
-                  min="0.001"
-                  step="0.001"
-                  disabled={!editable || busy}
-                  value={item.quantity}
-                  onChange={(e) =>
-                    setBill({
-                      ...bill,
-                      items: bill.items.map((v, j) =>
-                        i === j
-                          ? { ...v, quantity: Number(e.target.value) }
-                          : v,
-                      ),
-                    })
-                  }
-                />}
+                {!market && !item.createReturnProduct && (
+                  <ProductPicker
+                    label={`Item ${i + 1}`}
+                    showStock={kind !== "fresh_return"}
+                    unit={original?.unit}
+                    mrp={original?.mrp ?? item.mrp}
+                    disabled={!editable || busy}
+                    value={item.productId}
+                    onChange={(productId) =>
+                      setBill({
+                        ...bill,
+                        items: bill.items.map((v, j) =>
+                          i === j
+                            ? { ...v, productId, createReturnProduct: false }
+                            : v,
+                        ),
+                      })
+                    }
+                  />
+                )}
+                {item.createReturnProduct && (
+                  <div className="new-return-item">
+                    <strong>{original?.name}</strong>
+                    <small>
+                      New item on acceptance · MRP {original?.mrp?.toFixed(2)}
+                    </small>
+                  </div>
+                )}
+                {original ? (
+                  <strong className="bill-quantity">
+                    {item.quantity} {original.unit}
+                  </strong>
+                ) : (
+                  <input
+                    type="number"
+                    aria-label={`Quantity ${i + 1}`}
+                    min="0.001"
+                    step="0.001"
+                    disabled={!editable || busy}
+                    value={item.quantity}
+                    onChange={(e) =>
+                      setBill({
+                        ...bill,
+                        items: bill.items.map((v, j) =>
+                          i === j
+                            ? { ...v, quantity: Number(e.target.value) }
+                            : v,
+                        ),
+                      })
+                    }
+                  />
+                )}
                 {(!original || original.mrp === undefined) && (
                   <input
                     aria-label={`MRP ${i + 1}`}
@@ -486,7 +575,29 @@ export default function BillReview({
                   </button>
                 )}
               </div>
-              {editable && kind === "fresh_return" && !item.productId && <button className="text-button" disabled={busy} onClick={() => setBill({...bill, items: bill.items.map((v,j) => j === i ? {...v, createReturnProduct: !v.createReturnProduct} : v)})}>{item.createReturnProduct ? "Choose existing item" : "Receive as new item"}</button>}
+              {editable && kind === "fresh_return" && !item.productId && (
+                <button
+                  className="text-button"
+                  disabled={busy}
+                  onClick={() =>
+                    setBill({
+                      ...bill,
+                      items: bill.items.map((v, j) =>
+                        j === i
+                          ? {
+                              ...v,
+                              createReturnProduct: !v.createReturnProduct,
+                            }
+                          : v,
+                      ),
+                    })
+                  }
+                >
+                  {item.createReturnProduct
+                    ? "Choose existing item"
+                    : "Receive as new item"}
+                </button>
+              )}
             </div>
           );
         })}
@@ -560,7 +671,9 @@ export default function BillReview({
             <button
               className="primary"
               disabled={issues.some(
-                (i) => !["shortage", "missing"].includes(i.kind) || i.message?.includes("fresh return"),
+                (i) =>
+                  !["shortage", "missing"].includes(i.kind) ||
+                  i.message?.includes("fresh return"),
               )}
               onClick={() => setRestock(true)}
             >
