@@ -52,13 +52,38 @@ export async function recognizeVisionPhoto(raw: Uint8Array) {
     })
     .jpeg({ quality: 95 })
     .toBuffer();
-  const angle = await detectPhotoRotation(original).catch(()=>0);
-  const normalized = await sharp(original).rotate(angle).jpeg({quality:95}).toBuffer();
+  const angle = await detectPhotoRotation(original).catch(() => 0);
+  const normalized = await sharp(original)
+    .rotate(angle)
+    .jpeg({ quality: 95 })
+    .toBuffer();
   const meta = await sharp(normalized).metadata();
-  const width = meta.width!, height = meta.height!;
-  const cropWidth = Math.ceil(width * 0.56), cropHeight = Math.ceil(height * 0.56);
-  const details = await Promise.all([[0,0],[width-cropWidth,0],[0,height-cropHeight],[width-cropWidth,height-cropHeight]].map(([left,top]) => sharp(normalized).extract({left:left!,top:top!,width:cropWidth,height:cropHeight}).jpeg({quality:95}).toBuffer()));
-  const imageContent = [normalized,...details].map(bytes => ({type:"image_url",image_url:{url:`data:image/jpeg;base64,${bytes.toString("base64")}`}}));
+  const width = meta.width!,
+    height = meta.height!;
+  const cropWidth = Math.ceil(width * 0.56),
+    cropHeight = Math.ceil(height * 0.56);
+  const details = await Promise.all(
+    [
+      [0, 0],
+      [width - cropWidth, 0],
+      [0, height - cropHeight],
+      [width - cropWidth, height - cropHeight],
+    ].map(([left, top]) =>
+      sharp(normalized)
+        .extract({
+          left: left!,
+          top: top!,
+          width: cropWidth,
+          height: cropHeight,
+        })
+        .jpeg({ quality: 95 })
+        .toBuffer(),
+    ),
+  );
+  const imageContent = [normalized, ...details].map((bytes) => ({
+    type: "image_url",
+    image_url: { url: `data:image/jpeg;base64,${bytes.toString("base64")}` },
+  }));
   const response = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${account}/ai/run/${process.env.CLOUDFLARE_AI_MODEL || "@cf/qwen/qwen3.8-27b"}`,
     {
@@ -74,7 +99,10 @@ export async function recognizeVisionPhoto(raw: Uint8Array) {
           {
             role: "user",
             content: [
-              { type: "text", text: "Read this ONE invoice page. The first image is the full page. The next four are overlapping close-ups of that same page, in top-left, top-right, bottom-left, bottom-right order. Use close-ups to check small digits and product codes. Return each row once. Rotation refers to the full first image." },
+              {
+                type: "text",
+                text: "Read this ONE invoice page. The first image is the full page. The next four are overlapping close-ups of that same page, in top-left, top-right, bottom-left, bottom-right order. Use close-ups to check small digits and product codes. Return each row once. Rotation refers to the full first image.",
+              },
               ...imageContent,
             ],
           },
