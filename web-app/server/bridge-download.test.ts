@@ -2,6 +2,19 @@ import { test, expect } from "bun:test";
 import { bridgeDownload } from "./bridge-download";
 import release from "./bridge-release.json";
 const url = "https://cbf.amsonline.lk/api/downloads/focus-bridge.apk";
+test("both rewritten and original installer URLs bypass workspace initialization", async () => {
+  const { handleApi } = await import("./api");
+  for (const path of [
+    "/downloads/focus-bridge.apk",
+    "/api/downloads/focus-bridge.apk",
+  ]) {
+    const response = await handleApi(
+      new Request(`https://cbf.amsonline.lk${path}`, { method: "HEAD" }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Focus-SHA256")).toBe(release.sha256);
+  }
+});
 test("public installer points only to the retained release and refreshes its signed URL", async () => {
   let calls = 0;
   const storage = () => ({
