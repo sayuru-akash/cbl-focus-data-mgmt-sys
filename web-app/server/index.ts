@@ -21,7 +21,10 @@ const server = Bun.serve({
       );
     const frontend = process.env.FRONTEND_URL;
     if (!frontend)
-      return new Response("Start Focus with bun run start.", { status: 503 });
+      return new Response("Start Focus with bun run start.", {
+        status: 503,
+        headers: { "X-Robots-Tag": "noindex, nofollow" },
+      });
     const headers = new Headers(req.headers);
     headers.delete("host");
     try {
@@ -30,6 +33,7 @@ const server = Bun.serve({
         { method: req.method, headers, redirect: "manual" },
       );
       const outgoing = new Headers(response.headers);
+      outgoing.set("X-Robots-Tag", "noindex, nofollow");
       outgoing.delete("content-encoding");
       outgoing.delete("content-length");
       return new Response(response.body, {
@@ -39,6 +43,7 @@ const server = Bun.serve({
     } catch {
       return new Response("Workspace is starting. Refresh shortly.", {
         status: 503,
+        headers: { "X-Robots-Tag": "noindex, nofollow" },
       });
     }
   },

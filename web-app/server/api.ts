@@ -79,6 +79,15 @@ export async function handleApi(
   address = "",
   allowLocalSetup = false,
 ) {
+  const response = await handleApiResponse(req, address, allowLocalSetup);
+  response.headers.set("X-Robots-Tag", "noindex, nofollow");
+  return response;
+}
+async function handleApiResponse(
+  req: Request,
+  address: string,
+  allowLocalSetup: boolean,
+) {
   const url = new URL(req.url),
     path = url.pathname;
   const method = req.method;

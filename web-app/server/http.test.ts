@@ -45,7 +45,9 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
       await Bun.sleep(30);
     }
     expect((await fetch(base + "/api/tables/products")).status).toBe(401);
-    expect((await fetch(base + "/api/finance")).status).toBe(401);
+    const privateReport = await fetch(base + "/api/finance");
+    expect(privateReport.status).toBe(401);
+    expect(privateReport.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     expect((await fetch(base + "/api/finance/export")).status).toBe(401);
     expect(
       (
@@ -73,6 +75,7 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
     expect(financeExport.status).toBe(200);
     expect(financeExport.headers.get("content-type")).toContain("text/csv");
     expect(financeExport.headers.get("cache-control")).toBe("no-store");
+    expect(financeExport.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     expect(
       (await fetch(base + "/api/tables/products?size=10000", { headers }))
         .status,
