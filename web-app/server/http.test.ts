@@ -199,6 +199,36 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
       await fetch(base + `/api/bills/${first.id}`, { headers })
     ).json();
     expect(captured.revision).toBe(1);
+    const paymentBody = JSON.stringify({
+      payment_type: "cash",
+      revision: captured.revision,
+    });
+    expect(
+      (
+        await fetch(base + `/api/bills/${first.id}/payment`, {
+          method: "PATCH",
+          body: paymentBody,
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await fetch(base + `/api/bills/${first.id}/payment`, {
+          method: "PATCH",
+          headers: { ...headers, Origin: "http://evil.invalid" },
+          body: paymentBody,
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await fetch(base + `/api/bills/${first.id}/payment`, {
+          method: "PATCH",
+          headers,
+          body: paymentBody,
+        })
+      ).status,
+    ).toBe(400);
     expect(
       (
         await fetch(base + `/api/bills/${first.id}/accept`, {

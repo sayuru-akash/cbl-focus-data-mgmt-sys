@@ -268,7 +268,8 @@ async function handleApiResponse(
                 `${p.sku} ${p.codes || ""}`
                   .toUpperCase()
                   .includes(query.toUpperCase()) ||
-                words.every((w) => printedIdentity(p.name).includes(w)) ||
+                (words.length > 0 &&
+                  words.every((w) => printedIdentity(p.name).includes(w))) ||
                 p.score >= 85,
             )
             .sort(
