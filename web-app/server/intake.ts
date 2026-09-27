@@ -46,7 +46,7 @@ export class Intakes {
   }
   async cleanupPhotos() {
     if(!this.photos)return;
-    const pending=await this.store.db.query('SELECT key FROM photo_gc WHERE after_ms<? LIMIT 100').all(Date.now());
+    const pending=await this.store.db.query('SELECT key FROM photo_gc WHERE after_ms<=? LIMIT 100').all(Date.now());
     if(pending.length){await this.photos.delete(pending.map(p=>p.key));
       await this.store.db.transaction(async ()=>{for(const p of pending)await this.store.db.query('DELETE FROM photo_gc WHERE key=?').run(p.key);})();}
     await this.store.db.query('DELETE FROM photo_uploads WHERE expires<?').run(Date.now()-86400000);

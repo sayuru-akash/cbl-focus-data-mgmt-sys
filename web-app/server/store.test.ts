@@ -178,3 +178,16 @@ describe("Stock ledger", () => {
     await expect(s.decide(b.id, "accepted")).rejects.toThrow("Add bill number");
   });
 });
+
+test('concurrent duplicate prints and competing approvals cannot double deduct stock',async()=>{
+  const s=await fresh();const productId=await item(s,'PARALLEL',5);
+  const raw=new TextEncoder().encode('same captured print');
+  const [a,b]=await Promise.all([s.ingest(raw,'a','','phone'),s.ingest(raw,'b','','phone')]);
+  expect(a.id).toBe(b.id);expect([a,b].filter(r=>r.duplicate)).toHaveLength(1);
+  const first=await bill(s,[{productId,quantity:4}],'CONCURRENT1');
+  const second=await bill(s,[{productId,quantity:4}],'CONCURRENT2');
+  const result=await Promise.allSettled([s.decide(first,'accepted'),s.decide(second,'accepted')]);
+  expect(result.filter(r=>r.status==='fulfilled')).toHaveLength(1);
+  expect((await s.product(productId)).stock).toBe(1000);
+  expect((await s.inventory.lots(productId))[0].remaining).toBe(1);
+});

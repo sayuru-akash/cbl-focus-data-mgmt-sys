@@ -338,12 +338,10 @@ export class Store {
         .all(id)
     ).map((r: any) => ({ ...r, delta: r.delta / 1000 }));
   }
-  async ingest(
-    raw: Uint8Array,
-    filename: string,
-    mime: string,
-    source: string,
-  ) {
+  async ingest(raw: Uint8Array, filename: string, mime: string, source: string) {
+    return this.db.transaction(async () => this.ingestLocked(raw,filename,mime,source))();
+  }
+  private async ingestLocked(raw: Uint8Array, filename: string, mime: string, source: string) {
     if (!raw.length) fail("The file is empty");
     if (raw.length > 10 * 1024 * 1024)
       throw new AppError("Maximum file size is 10 MB", 413);

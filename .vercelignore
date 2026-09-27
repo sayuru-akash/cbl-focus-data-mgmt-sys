@@ -1,0 +1,9 @@
+.git/
+node_modules/
+web-app/node_modules/
+web-app/.next/
+web-app/data/
+web-app/.env*
+!web-app/.env.example
+android-connector/
+*.log

@@ -36,11 +36,11 @@ export default function Connection() {
             <div className="section-title">
               <h2>
                 <Wifi size={21} />
-                Local Wi-Fi
+                {connection.mode}
               </h2>
               <span className="status accepted">Ready</span>
             </div>
-            <p className="muted">Use the same Wi-Fi on both devices.</p>
+            <p className="muted">{connection.mode === "Cloud" ? "The receiver uploads over Wi-Fi or mobile data." : "Use the same Wi-Fi on both devices."}</p>
             <label>Server address</label>
             {connection.urls.map((url: string) => (
               <div className="copy-field" key={url}>
@@ -91,7 +91,7 @@ export default function Connection() {
             <p>Pair the receiver phone with your CBL tablet.</p>
             <ol>
               <li>Install the receiver on a second Android device.</li>
-              <li>Enter the server address and connector key.</li>
+              <li>{connection.mode === "Cloud" ? "The server address is preset. Enter the connector key once." : "Enter the server address and connector key."}</li>
               <li>Tap Use printer name SPP-R310, then pair with the tablet.</li>
               <li>
                 Start the receiver. In CBL, slide 3 Inches on that device.

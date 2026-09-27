@@ -5,7 +5,7 @@ import { dirname } from 'node:path';
 import type { OcrBlock } from './supplier-parser';
 const require=createRequire(import.meta.url);
 function languagePath(code:'eng'|'osd') {
-  return dirname(require.resolve(`@tesseract.js-data/${code}/4.0.0/${code}.traineddata.gz`));
+  return code==='eng' ? require('@tesseract.js-data/eng').langPath : require('@tesseract.js-data/osd').langPath;
 }
 export async function recognizeCloudPhoto(raw:Uint8Array,rotation?:number) {
   let worker:Worker|undefined;

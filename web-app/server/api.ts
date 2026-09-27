@@ -92,7 +92,7 @@ export async function handleApi(
       )
         throw new AppError("Invalid request origin", 403);
     }
-    if (path === "/api/health") return json({ ok: true });
+    if (path === "/api/health") { await store.db.query("SELECT 1 AS ok").get(); return json({ ok: true }); }
     if(path==='/api/maintenance' && method==='GET') {
       if(!process.env.CRON_SECRET || !safeEqual(req.headers.get('authorization')||'',`Bearer ${process.env.CRON_SECRET}`))throw new AppError('Unauthorized',401);
       await intakes.cleanupPhotos();return json({ok:true});

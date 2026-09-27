@@ -163,7 +163,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           </nav>
           <div className="workspace">
             <Monitor size={18} />
-            <span>Local workspace</span>
+            <span>Distribution workspace</span>
             <button
               className="icon-button"
               aria-label="Sign out"

@@ -1,6 +1,6 @@
 # Focus
 
-A distributor workspace for Bluetooth sales bills, supplier invoice photos, and stock batches. Next.js App Router serves the web application; Bun and SQLite handle authenticated uploads and inventory transactions.
+A distributor workspace for Bluetooth sales bills, supplier invoice photos, and stock batches. Next.js App Router and Bun serve the application and API on Vercel. Neon Postgres stores the ledger, and a private Cloudflare R2 bucket holds draft invoice photos. SQLite remains available for the isolated local sample workspace.
 
 ## Run
 
@@ -11,7 +11,7 @@ bun run build
 bun run start
 ```
 
-Open http://localhost:4310 on the server computer and create the workspace password. The initial password can only be set from loopback. Then open **Connection** for the Wi-Fi address and ingest-only connector key.
+Copy `web-app/.env.example` to `web-app/.env` and configure the production services. Open http://localhost:4310. For an isolated LAN workspace, set `FOCUS_LOCAL=1` and `SECURE_COOKIES=0`; its initial password can only be set from loopback. Sample mode sets these automatically.
 
 ## Local sample workspace
 
@@ -23,9 +23,9 @@ The sample server binds only to this computer. Stop it before running the real w
 
 ## First device test
 
-1. Keep the Mac and second Android device on the same trusted Wi-Fi.
+1. Open https://cbf.amsonline.lk. The receiver phone needs internet access over Wi-Fi or mobile data.
 2. Download `/downloads/focus-bridge.apk` from the web app's address. Install it on the **second device**, not the CBL tablet. Android 9 or newer is required.
-3. Enter the server address and connector key from **Connection**.
+3. The v0.5 receiver defaults to https://cbf.amsonline.lk. Enter the connector key from **Connection** once. Updating the existing APK retains its key and queued captures.
 4. Tap **Start receiver**. Allow Bluetooth access. If a permission or Bluetooth enable prompt appears, tap **Start receiver** again afterward.
 5. Tap **Use printer name SPP-R310** on the receiver phone. Pair it from the tablet's Bluetooth settings, removing the old phone pairing first if its name was cached. Reopen CBL's printer picker and slide **3 Inches** fully right on the phone's SPP-R310 entry. Turn off the physical printer during this test to avoid choosing it by mistake.
 6. Print just one bill. Wait until the receiver's byte count stops increasing, then tap **Save bill**. A disconnected stream is also saved automatically.
@@ -81,7 +81,17 @@ Enter received quantities in each product's stock unit. Changing the unit after 
 
 The original bytes and decoded text remain stored with each bill. Exact retries deduplicate; differing reprints with an existing active invoice number are retained for review and cannot be accepted under that same number twice. Unexpected layouts, multiple copies, nonzero returns, free-issue sections, unrecognized text or mismatched totals require manual review instead of automatically filling stock quantities. Supplier photo intake extracts a draft and infers explicit carton sizes; every page and item still requires review.
 
-The application currently runs locally. It is not deployed to a cloud provider. Before internet deployment, choose the hosting/account context, configure HTTPS and `SECURE_COOKIES=1`, protect setup behind loopback, provide a persistent volume, and configure database backups. This is currently one shared workspace, not a multi-tenant or role-based system. The unauthenticated APK route serves only the installer; business data requires authentication. Local HTTP is intended only for the requested trusted-Wi-Fi test.
+Production uses HTTPS, secure HTTP-only sessions, a database-backed login limit, and an ingest-only connector key. Photos upload directly to the private R2 bucket using short-lived, checksum-bound URLs. Approval atomically adds stock and queues photo deletion; failures retry through the daily maintenance job. The confirmed invoice fields, original page hashes, product links, batch costs, MRP, and stock history remain. Draft photos do not expire while awaiting review. Incomplete uploads are cleaned after 24 hours.
+
+## Production deployment
+
+Project: `cbl-focus-data-mgmt-sys`, root directory `web-app`, runtime Bun, region Singapore. The public address is https://cbf.amsonline.lk. See `.env.example` for the environment contract. No credential belongs in `NEXT_PUBLIC_*`, an APK, or Git.
+
+Set these Vercel Production variables: `DATABASE_URL`, `DATABASE_URL_POOLED`, `APP_URL`, `SECURE_COOKIES`, `OCR_ENGINE`, `R2_BUCKET`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `CRON_SECRET`. Database and R2 values are secret. The scheduled `/api/maintenance` route verifies `CRON_SECRET`.
+
+`bun scripts/migrate-postgres.ts` migrates the real local SQLite workspace into an empty Neon database, preserving existing password and connector hashes/keys. It makes a consistent local backup, verifies row counts and stock balances, rejects sample folders, and refuses to overwrite an already-migrated or populated destination. Sessions are not migrated. For a new empty installation only, use `WORKSPACE_PASSWORD` (at least 10 characters) and optionally `CONNECTOR_KEY` during first setup, then remove the password environment variable.
+
+`bun test` uses isolated SQLite stores. `FOCUS_TEST_POSTGRES=1 bun test --timeout 60000` runs store tests in disposable, uniquely named Neon schemas. It never truncates the production schema. Keep a Neon backup/recovery policy appropriate for your business; the migration backup remains in the ignored `web-app/data/migration-backups` directory.
 
 ## Configuration
 
