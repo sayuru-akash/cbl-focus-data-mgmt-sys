@@ -396,3 +396,167 @@ test("invoice review rejects fractional box and sold quantities", () => {
     lineIssues({ ...line(), sold: 1.5, unit: "DZ", packSize: 12 }),
   ).toContain("Sold quantity must be a whole number");
 });
+
+test("invoice warnings require explicit acknowledgement and retain an immutable receipt audit", async () => {
+  const { store, intakes, id, d } = await setup();
+  const accepted = ["invoice_number_mismatch", "page_review", "header_review"];
+  try {
+    d.pages[0]!.invoice = "TAX00I";
+    d.pages[0]!.reviewed = false;
+    d.headerReviewed = false;
+    d.warningAcceptance = {
+      at: "forged",
+      revision: 1,
+      invoiceNumber: d.number,
+      warnings: [],
+    };
+    const saved = await intakes.save(id, { revision: 1, draft: d });
+    expect(saved.draft.warningAcceptance).toBeUndefined();
+    expect(saved.blockers).toHaveLength(0);
+    expect(saved.warnings.map((w: { code: string }) => w.code)).toEqual(
+      accepted,
+    );
+    for (const acknowledgement of [
+      undefined,
+      true,
+      ["page_review"],
+      [...accepted, "anything"],
+      ["page_review", "page_review", "header_review"],
+    ])
+      await expect(intakes.receive(id, 2, acknowledgement)).rejects.toThrow(
+        "accept the invoice warnings",
+      );
+    expect(await store.products()).toHaveLength(0);
+    const received = await intakes.receive(id, 2, accepted);
+    expect(received.status).toBe("received");
+    expect(received.draft.warningAcceptance).toMatchObject({
+      revision: 2,
+      invoiceNumber: "TAX001",
+      warnings: saved.warnings,
+    });
+    expect(
+      Number.isFinite(Date.parse(received.draft.warningAcceptance!.at)),
+    ).toBe(true);
+    expect(received.draft.pages[0]!.invoice).toBe("TAX00I");
+    expect(received.draft.pages[0]!.reviewed).toBe(false);
+    expect((await store.products())[0].stock).toBe(9);
+    await intakes.receive(id, 2, accepted);
+    expect((await store.products())[0].stock).toBe(9);
+    await expect(
+      intakes.save(id, { revision: received.revision, draft: d }),
+    ).rejects.toThrow("cannot be edited");
+    expect((await intakes.get(id)).draft.warningAcceptance).toEqual(
+      received.draft.warningAcceptance,
+    );
+
+    // A later upload using the alternative printed number is still a duplicate.
+    const duplicate = crypto.randomUUID();
+    const next = structuredClone(d);
+    next.number = "TAX00I";
+    next.headerReviewed = true;
+    next.pages[0]!.reviewed = true;
+    await store.db
+      .query("INSERT INTO intakes(id,draft,created) VALUES (?,?,?)")
+      .run(duplicate, JSON.stringify(next), new Date().toISOString());
+    await store.db
+      .query(
+        "INSERT INTO intake_pages(id,intake_id,position,filename,mime,hash,raw) VALUES (?,?,?,?,?,?,?)",
+      )
+      .run(
+        crypto.randomUUID(),
+        duplicate,
+        0,
+        "page.jpg",
+        "image/jpeg",
+        "duplicate",
+        new Uint8Array([1]),
+      );
+    await expect(intakes.receive(duplicate, 1)).rejects.toThrow(
+      "already been received",
+    );
+    expect((await store.products())[0].stock).toBe(9);
+    expect((await intakes.get(duplicate)).status).toBe("draft");
+  } finally {
+    await store.db.close();
+  }
+});
+
+test("warning acceptance cannot bypass stock, money, item-review or page-completeness errors", async () => {
+  const { store, intakes, id, d } = await setup();
+  try {
+    d.headerReviewed = false;
+    d.pages[0]!.reviewed = false;
+    const accepted = ["page_review", "header_review"];
+    let revision = 1;
+    const cases: Array<[(draft: IntakeDraft) => void, string]> = [
+      [
+        (d) => {
+          d.lines[0]!.mrp = null;
+        },
+        "MRP",
+      ],
+      [
+        (d) => {
+          d.lines[0]!.sold = 0;
+        },
+        "Sold quantity",
+      ],
+      [
+        (d) => {
+          d.lines[0]!.packSize = 12;
+        },
+        "pack size",
+      ],
+      [
+        (d) => {
+          d.total = 1;
+        },
+        "invoice total",
+      ],
+      [
+        (d) => {
+          d.gross = 1;
+        },
+        "Line amounts",
+      ],
+      [
+        (d) => {
+          d.lines[0]!.reviewed = false;
+        },
+        "Review every item",
+      ],
+      [
+        (d) => {
+          d.pages[0]!.count = 2;
+        },
+        "page numbers",
+      ],
+    ];
+    for (const [change, message] of cases) {
+      const next = structuredClone(d);
+      change(next);
+      await intakes.save(id, { revision, draft: next });
+      revision++;
+      await expect(intakes.receive(id, revision, accepted)).rejects.toThrow(
+        message,
+      );
+      expect(await store.products()).toHaveLength(0);
+      expect((await intakes.get(id)).draft.warningAcceptance).toBeUndefined();
+    }
+    await intakes.save(id, { revision, draft: d });
+    await expect(intakes.receive(id, revision, accepted)).rejects.toThrow(
+      "changed",
+    );
+    // Resolving a warning invalidates the old acknowledgement too.
+    revision++;
+    d.pages[0]!.reviewed = true;
+    await intakes.save(id, { revision, draft: d });
+    revision++;
+    await expect(intakes.receive(id, revision, accepted)).rejects.toThrow(
+      "accept the invoice warnings",
+    );
+    expect(await store.products()).toHaveLength(0);
+  } finally {
+    await store.db.close();
+  }
+});

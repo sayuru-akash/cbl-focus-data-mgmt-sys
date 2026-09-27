@@ -1,5 +1,5 @@
 import { invoiceCosts } from "../../server/intake-costs";
-import { lineIssues } from "../../server/intake-validation";
+import { lineIssues, draftValidation } from "../../server/intake-validation";
 import ProductPicker from "./ProductPicker";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -55,6 +55,7 @@ export default function InvoiceIntake({
 }) {
   const router = useRouter();
   const [leaveAction, setLeaveAction] = useState<(() => void) | null>(null);
+  const [receivePrompt, setReceivePrompt] = useState<Intake | null>(null);
   const [intake, setIntake] = useState<Intake | null>(null),
     [draft, setDraft] = useState<IntakeDraft | null>(null);
   const [files, setFiles] = useState<File[]>([]),
@@ -71,6 +72,10 @@ export default function InvoiceIntake({
   const upload = useRef<HTMLInputElement>(null),
     camera = useRef<HTMLInputElement>(null);
   const locked = intake?.status === "received";
+  const validation =
+    draft && intake
+      ? draftValidation(draft, intake.pages.length)
+      : { blockers: [], warnings: [] };
   const dirty = intake
     ? JSON.stringify(draft) !== JSON.stringify(intake.draft)
     : files.length > 0;
@@ -303,6 +308,31 @@ export default function InvoiceIntake({
       }
     });
   }
+  async function receive(saved: Intake, acceptWarnings = false) {
+    const warnings = draftValidation(saved.draft, saved.pages.length).warnings;
+    apply(
+      await api<Intake>(`/intakes/${saved.id}/receive`, {
+        method: "POST",
+        body: JSON.stringify({
+          revision: saved.revision,
+          acceptedWarnings: acceptWarnings ? warnings.map((w) => w.code) : [],
+        }),
+      }),
+    );
+    setReceivePrompt(null);
+    onSaved();
+    setMessage("Stock received.");
+  }
+  async function prepareReceive() {
+    await run(async () => {
+      const saved = await save();
+      if (!saved) return;
+      const result = draftValidation(saved.draft, saved.pages.length);
+      if (result.blockers.length) throw new Error(result.blockers[0]);
+      if (result.warnings.length) setReceivePrompt(saved);
+      else await receive(saved);
+    });
+  }
   const row = draft?.lines[step];
   const cost = draft ? invoiceCosts(draft)?.[step] : null;
   const ready = Boolean(draft && step >= draft.lines.length && step >= 0);
@@ -523,6 +553,17 @@ export default function InvoiceIntake({
                   Next <ChevronRight size={18} />
                 </button>
               </nav>
+              {!locked && validation.warnings.length > 0 && !ready && (
+                <div className="intake-warning-bar">
+                  <span>{validation.warnings.length} invoice warnings</span>
+                  <button
+                    disabled={busy}
+                    onClick={() => navigateStep(draft.lines.length)}
+                  >
+                    Review warnings
+                  </button>
+                </div>
+              )}
               <div className="intake-layout">
                 <aside className="intake-source">
                   <label>
@@ -1043,43 +1084,62 @@ export default function InvoiceIntake({
                       {!locked && (
                         <>
                           <p className="muted">
-                            Stock is added once, after every page and item is
-                            checked.
+                            Stock is added once, using the reviewed quantities
+                            and prices.
                           </p>
                           <button
                             className="primary"
-                            disabled={busy || intake.issues.length > 0}
-                            onClick={() =>
-                              void run(async () => {
-                                const saved = await save();
-                                if (saved) {
-                                  apply(
-                                    await api<Intake>(
-                                      `/intakes/${intake.id}/receive`,
-                                      {
-                                        method: "POST",
-                                        body: JSON.stringify({
-                                          revision: saved.revision,
-                                        }),
-                                      },
-                                    ),
-                                  );
-                                  onSaved();
-                                  setMessage("Stock received.");
-                                }
-                              })
-                            }
+                            disabled={busy || validation.blockers.length > 0}
+                            onClick={() => void prepareReceive()}
                           >
-                            Confirm and add stock
+                            {validation.warnings.length
+                              ? "Review and add stock"
+                              : "Confirm and add stock"}
                           </button>
-                          {intake.issues.length > 0 && (
+                          {validation.blockers.length > 0 && (
                             <ul className="intake-issues">
-                              {intake.issues.map((issue, i) => (
+                              {validation.blockers.map((issue, i) => (
                                 <li key={i}>{issue}</li>
                               ))}
                             </ul>
                           )}
+                          {validation.warnings.length > 0 && (
+                            <div className="intake-warning-list">
+                              <strong>Warnings</strong>
+                              <ul>
+                                {validation.warnings.map((w) => (
+                                  <li key={w.code}>{w.message}</li>
+                                ))}
+                              </ul>
+                              <small>
+                                You can accept these when adding stock.
+                              </small>
+                            </div>
+                          )}
                         </>
+                      )}
+                      {locked && draft.warningAcceptance && (
+                        <details className="intake-warning-list">
+                          <summary>Warnings accepted at receipt</summary>
+                          <p>
+                            {new Date(
+                              draft.warningAcceptance.at,
+                            ).toLocaleString("en-GB", {
+                              timeZone: "Asia/Colombo",
+                            })}{" "}
+                            · Sri Lanka
+                          </p>
+                          {draft.warningAcceptance.warnings.map((w) => (
+                            <div key={w.code}>
+                              <strong>{w.message}</strong>
+                              <ul>
+                                {w.details.map((detail, i) => (
+                                  <li key={i}>{detail}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                        </details>
                       )}
                     </>
                   ) : null}
@@ -1143,6 +1203,53 @@ export default function InvoiceIntake({
           )}
         </div>
       </Frame>
+      {receivePrompt && (
+        <Modal
+          title="Add stock with warnings?"
+          onClose={() => {
+            if (!busy) setReceivePrompt(null);
+          }}
+        >
+          <p>
+            <strong>{receivePrompt.draft.number}</strong>
+            <br />
+            {receivePrompt.draft.lines.length} items ·{" "}
+            {money(receivePrompt.draft.total)}
+          </p>
+          <div className="intake-warning-list">
+            {draftValidation(
+              receivePrompt.draft,
+              receivePrompt.pages.length,
+            ).warnings.map((w) => (
+              <div key={w.code}>
+                <strong>{w.message}</strong>
+                <ul>
+                  {w.details.map((detail, i) => (
+                    <li key={i}>{detail}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <p>
+            I confirm these photos belong to this invoice and the entered
+            details and totals are correct.
+          </p>
+          <div className="actions">
+            <button disabled={busy} onClick={() => setReceivePrompt(null)}>
+              Go back
+            </button>
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={() => void run(() => receive(receivePrompt, true))}
+            >
+              {busy ? "Adding stock…" : "I accept and add stock"}
+            </button>
+          </div>
+          <ErrorText message={error} />
+        </Modal>
+      )}
       {leaveAction && (
         <Modal title="Unsaved changes" onClose={() => setLeaveAction(null)}>
           <p>Save the draft before leaving to keep your changes.</p>

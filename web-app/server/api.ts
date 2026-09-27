@@ -348,8 +348,12 @@ async function handleApiResponse(
           return json(await intakes.save(id!, await req.json()));
         if (action === "process" && method === "POST")
           return json(await intakes.process(id!));
-        if (action === "receive" && method === "POST")
-          return json(await intakes.receive(id!, (await req.json()).revision));
+        if (action === "receive" && method === "POST") {
+          const input = await req.json();
+          return json(
+            await intakes.receive(id!, input.revision, input.acceptedWarnings),
+          );
+        }
       }
       if (path === "/api/products" && method === "GET")
         return json(await store.products());

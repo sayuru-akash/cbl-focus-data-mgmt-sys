@@ -19,7 +19,7 @@ const key = (s: string) => s.trim().toUpperCase().replace(/\s+/g, "");
 const finite = (v: unknown) =>
   typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1e8;
 export { lineIssues, draftIssues } from "./intake-validation";
-import { lineIssues, draftIssues } from "./intake-validation";
+import { lineIssues, draftIssues, draftValidation } from "./intake-validation";
 export class Intakes {
   constructor(
     private store: Store,
@@ -194,6 +194,7 @@ export class Intakes {
       pages,
       processing: r.processing_until > Date.now(),
       issues: draftIssues(draft, pages.length),
+      ...draftValidation(draft, pages.length),
     };
   }
   async page(id: string, page: string, original = false) {
@@ -464,6 +465,8 @@ export class Intakes {
       d.pages.length !== existing.pages.length
     )
       fail("Invalid invoice draft");
+    // Receipt acknowledgement is written by the server only after posting.
+    delete d.warningAcceptance;
     for (const [field, max] of [
       ["supplier", 200],
       ["tin", 30],
@@ -516,7 +519,7 @@ export class Intakes {
       throw new AppError("This draft changed. Reopen it before saving", 409);
     return await this.get(id);
   }
-  async receive(id: string, revision: number) {
+  async receive(id: string, revision: number, acceptedWarnings: unknown = []) {
     const received = await this.store.db.transaction(async () => {
       const intake = await this.get(id);
       if (intake.status === "received") return intake;
@@ -525,17 +528,33 @@ export class Intakes {
           "This draft changed. Reopen it before receiving",
           409,
         );
-      const d: IntakeDraft = intake.draft,
-        issues = draftIssues(d, intake.pages.length);
-      if (issues.length) fail(issues[0]!);
+      const d: IntakeDraft = intake.draft;
+      const { blockers, warnings } = draftValidation(d, intake.pages.length);
+      if (blockers.length) fail(blockers[0]!);
       if (
-        await this.store.db
-          .query(
-            "SELECT intake_id FROM received_supplier_invoices WHERE tin=? AND number=?",
-          )
-          .get(d.tin, key(d.number))
+        !Array.isArray(acceptedWarnings) ||
+        acceptedWarnings.length !== warnings.length ||
+        new Set(acceptedWarnings).size !== warnings.length ||
+        warnings.some((warning) => !acceptedWarnings.includes(warning.code))
       )
-        fail("This supplier invoice has already been received");
+        fail("Review and accept the invoice warnings before adding stock");
+      // Reserve every acknowledged number so a later scan using the other
+      // page's spelling cannot receive this same invoice a second time.
+      const invoiceNumbers = [
+        ...new Set(
+          [d.number, ...d.pages.map((p) => p.invoice)].map(key).filter(Boolean),
+        ),
+      ];
+      for (const number of invoiceNumbers) {
+        if (
+          await this.store.db
+            .query(
+              "SELECT intake_id FROM received_supplier_invoices WHERE tin=? AND number=?",
+            )
+            .get(d.tin, number)
+        )
+          fail("This supplier invoice has already been received");
+      }
       const costs = invoiceCosts(d);
       if (!costs) fail("Check invoice amounts before receiving");
       const shares = costs!.map((c) => c.discountCents);
@@ -593,9 +612,18 @@ export class Intakes {
         lines,
       });
       await this.store.inventory.postPurchase(purchase.id);
-      await this.store.db
-        .query("INSERT INTO received_supplier_invoices VALUES (?,?,?)")
-        .run(d.tin, key(d.number), id);
+      for (const number of invoiceNumbers)
+        await this.store.db
+          .query("INSERT INTO received_supplier_invoices VALUES (?,?,?)")
+          .run(d.tin, number, id);
+      if (warnings.length)
+        d.warningAcceptance = {
+          at: new Date().toISOString(),
+          revision,
+          invoiceNumber: d.number,
+          warnings,
+        };
+      else delete d.warningAcceptance;
       // Keep reviewed source amounts and exact discount shares for audit; rounded unit costs are separate.
       d.lines.forEach((l, i) => {
         l.productId = lines[i]!.productId;

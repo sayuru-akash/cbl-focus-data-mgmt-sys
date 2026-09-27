@@ -41,6 +41,12 @@ export type IntakeDraft = {
   pages: PageFields[];
   lines: IntakeLine[];
   headerReviewed: boolean;
+  warningAcceptance?: {
+    at: string;
+    revision: number;
+    invoiceNumber: string;
+    warnings: import("./intake-validation").IntakeWarning[];
+  };
 };
 const plain = (s: string) =>
   s

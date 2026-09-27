@@ -109,3 +109,43 @@ export function draftIssues(d: IntakeDraft, pages: number): string[] {
   }
   return issues;
 }
+
+export type IntakeWarning = {
+  code: "invoice_number_mismatch" | "page_review" | "header_review";
+  message: string;
+  details: string[];
+};
+
+export function draftValidation(d: IntakeDraft, pages: number) {
+  const warnings: IntakeWarning[] = [];
+  if (d.pages.some((p) => key(p.invoice) !== key(d.number)))
+    warnings.push({
+      code: "invoice_number_mismatch",
+      message: "Invoice numbers differ between pages",
+      details: [
+        `Receive as: ${d.number}`,
+        ...d.pages.map((p, i) => `Photo ${i + 1}: ${p.invoice || "Not read"}`),
+      ],
+    });
+  const unchecked = d.pages.flatMap((p, i) => (!p.reviewed ? [i + 1] : []));
+  if (unchecked.length)
+    warnings.push({
+      code: "page_review",
+      message: "Page details have not been confirmed",
+      details: [`Photos: ${unchecked.join(", ")}`],
+    });
+  if (!d.headerReviewed)
+    warnings.push({
+      code: "header_review",
+      message: "Invoice details have not been confirmed",
+      details: [],
+    });
+  // Only these document-detail checks may be acknowledged at final receipt.
+  // Item review, quantities, money, missing/duplicate pages stay mandatory.
+  const blockers = draftIssues(d, pages).filter(
+    (issue) =>
+      issue !== "All pages must have the same tax invoice number" &&
+      issue !== "Confirm page details and invoice totals",
+  );
+  return { blockers, warnings };
+}
