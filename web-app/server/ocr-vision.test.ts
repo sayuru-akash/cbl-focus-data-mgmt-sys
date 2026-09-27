@@ -1,5 +1,9 @@
 import { test, expect } from "bun:test";
-import { extractedPage, parseExtractedPage } from "./ocr-vision";
+import {
+  extractedPage,
+  parseExtractedPage,
+  readVisionResponse,
+} from "./ocr-vision";
 const page = {
   supplier: "CBL FOODS",
   tin: "114309834",
@@ -51,4 +55,72 @@ test("vision extraction rejects missing rows and invalid amounts", () => {
     1,
   );
   expect(parsed.lines[0]!.packSize).toBeNull();
+});
+
+test("daily AI quota errors are actionable and never become empty successful drafts", async () => {
+  const response = Response.json(
+    {
+      success: false,
+      errors: [
+        {
+          code: 4006,
+          message:
+            "AiError: you have used up your daily free allocation of 10,000 neurons",
+        },
+      ],
+    },
+    { status: 429 },
+  );
+  await expect(readVisionResponse(response)).rejects.toMatchObject({
+    status: 429,
+    message: expect.stringContaining("Daily scanning allowance used"),
+  });
+});
+
+test("provider outages and unreadable responses have safe retry messages", async () => {
+  for (const status of [401, 403, 429, 500, 503]) {
+    await expect(
+      readVisionResponse(
+        new Response("Provider diagnostic with private details", { status }),
+      ),
+    ).rejects.toMatchObject({
+      status: 503,
+      message: expect.stringContaining("photos are saved"),
+    });
+  }
+  await expect(
+    readVisionResponse(
+      Response.json({ success: true, result: { response: "not JSON" } }),
+    ),
+  ).rejects.toMatchObject({ status: 422 });
+  await expect(
+    readVisionResponse(
+      Response.json({
+        success: true,
+        result: {
+          choices: [
+            {
+              finish_reason: "length",
+              message: { content: JSON.stringify(page) },
+            },
+          ],
+        },
+      }),
+    ),
+  ).rejects.toMatchObject({ status: 422 });
+  expect(
+    await readVisionResponse(
+      Response.json({
+        success: true,
+        result: {
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify(page) },
+            },
+          ],
+        },
+      }),
+    ),
+  ).toEqual(page);
 });

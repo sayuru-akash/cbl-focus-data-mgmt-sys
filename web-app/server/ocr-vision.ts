@@ -2,6 +2,7 @@ import { detectPhotoRotation } from "./ocr-cloud";
 import sharp from "sharp";
 import { z } from "zod";
 import { packFrom, type OcrBlock } from "./supplier-parser";
+import { AppError } from "./store";
 const amount = z.number().finite().min(0).max(1e8).nullable();
 export const extractedPage = z.object({
   supplier: z.string().max(200),
@@ -41,7 +42,10 @@ export async function recognizeVisionPhoto(raw: Uint8Array) {
   const account = process.env.CLOUDFLARE_ACCOUNT_ID,
     token = process.env.CLOUDFLARE_AI_TOKEN;
   if (!account || !token)
-    throw new Error("Cloud photo recognition is not configured");
+    throw new AppError(
+      "Photo scanning is not configured. Contact the workspace administrator.",
+      503,
+    );
   const original = await sharp(raw, { limitInputPixels: 40_000_000 })
     .autoOrient()
     .resize({
@@ -113,28 +117,13 @@ export async function recognizeVisionPhoto(raw: Uint8Array) {
         reasoning_effort: "medium",
       }),
     },
-  );
-  const body = (await response.json()) as any;
-  if (!response.ok || !body.success)
-    throw new Error(
-      "Cloud photo recognition is temporarily unavailable. Try again.",
+  ).catch(() => {
+    throw new AppError(
+      "Photo scanning timed out or could not connect. Your photos are saved. Retry processing.",
+      503,
     );
-  const choice = body.result?.choices?.[0];
-  if (choice?.finish_reason === "length")
-    throw new Error(
-      "This page has too much detail. Take closer photos and try again.",
-    );
-  const text = choice?.message?.content || body.result?.response || "";
-  let data: z.infer<typeof extractedPage>;
-  try {
-    data = extractedPage.parse(
-      JSON.parse(text.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "")),
-    );
-  } catch {
-    throw new Error(
-      "Could not read all invoice fields. Use a clearer photo and try again.",
-    );
-  }
+  });
+  const data = await readVisionResponse(response);
   const preview = await sharp(normalized)
     .rotate(data.rotation)
     .resize({
@@ -151,6 +140,49 @@ export async function recognizeVisionPhoto(raw: Uint8Array) {
     rotation: (angle + data.rotation) % 360,
     extracted: data,
   };
+}
+export async function readVisionResponse(response: Response) {
+  const body = (await response.json().catch(() => null)) as any;
+  if (!response.ok || !body?.success) {
+    const quotaReached =
+      Array.isArray(body?.errors) &&
+      body.errors.some((error: any) =>
+        /daily (free )?allocation|daily.*(?:limit|quota)/i.test(
+          String(error?.message || ""),
+        ),
+      );
+    if (quotaReached)
+      throw new AppError(
+        "Daily scanning allowance used. Photos are saved. Retry after the allowance resets or upgrade the scanning plan.",
+        429,
+      );
+    if (response.status === 401 || response.status === 403)
+      throw new AppError(
+        "Photo scanning access needs attention. Your photos are saved. Contact the workspace administrator.",
+        503,
+      );
+    throw new AppError(
+      "Photo scanning is temporarily unavailable. Your photos are saved. Retry processing shortly.",
+      503,
+    );
+  }
+  const choice = body.result?.choices?.[0];
+  if (choice?.finish_reason === "length")
+    throw new AppError(
+      "This page could not be read completely. Use a clearer photo and try again.",
+      422,
+    );
+  const text = choice?.message?.content || body.result?.response || "";
+  try {
+    return extractedPage.parse(
+      JSON.parse(text.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "")),
+    );
+  } catch {
+    throw new AppError(
+      "Could not read all invoice fields. Use a clearer photo and try again.",
+      422,
+    );
+  }
 }
 export function parseExtractedPage(
   data: z.infer<typeof extractedPage>,
