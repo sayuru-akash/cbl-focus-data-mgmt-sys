@@ -1,3 +1,4 @@
+import { recognizeCloudPhoto } from "./ocr-cloud";
 import sharp from "sharp";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -47,6 +48,7 @@ async function visionBinary() {
   return compilation;
 }
 export async function recognizePhoto(raw: Uint8Array, rotation?: number) {
+  if(process.platform !== "darwin" || process.env.OCR_ENGINE === "tesseract") return recognizeCloudPhoto(raw,rotation);
   const dir = await mkdtemp(join(tmpdir(), "focus-invoice-"));
   try {
     const input = join(dir, "input.png"),

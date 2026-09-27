@@ -5,16 +5,16 @@ import { join, resolve } from "node:path";
 import { Store } from "./store";
 test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", async () => {
   const dir = await mkdtemp(join(tmpdir(), "focus-http-"));
-  const seed = new Store(join(dir, "focus.sqlite"));
-  seed.set("password", Bun.password.hashSync("test-password-only"));
-  seed.set("connectorKey", "test-connector");
-  const product = seed.saveProduct({
+  const seed = await Store.open(join(dir, "focus.sqlite"));
+  await seed.set("password", Bun.password.hashSync("test-password-only"));
+  await seed.set("connectorKey", "test-connector");
+  const product = await seed.saveProduct({
     sku: "SKU_1",
     name: "Chocolate",
     unit: "PKT",
     stock: 10,
   });
-  seed.db.close();
+  await seed.db.close();
   const reserve = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -30,6 +30,8 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
       HOST: "127.0.0.1",
       PORT: String(port),
       DATA_DIR: dir,
+      FOCUS_LOCAL: "1",
+      SECURE_COOKIES: "0",
       FRONTEND_URL: "http://127.0.0.1:4311",
     },
     stdout: "ignore",

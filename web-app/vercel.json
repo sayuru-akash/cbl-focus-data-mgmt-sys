@@ -1,0 +1,12 @@
+{
+  "bunVersion": "1.x",
+  "regions": [
+    "sin1"
+  ],
+  "crons": [
+    {
+      "path": "/api/maintenance",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}

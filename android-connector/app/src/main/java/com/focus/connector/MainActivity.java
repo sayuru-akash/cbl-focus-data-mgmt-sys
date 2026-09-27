@@ -25,13 +25,19 @@ public class MainActivity extends Activity {
   handler.postDelayed(this,1000);
  }};
  @Override public void onCreate(Bundle state){super.onCreate(state);
-  LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setBackgroundColor(Color.rgb(247,250,249));ScrollView scroll=new ScrollView(this);scroll.addView(content);setContentView(scroll);
+  LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setBackgroundColor(Color.WHITE);ScrollView scroll=new ScrollView(this);scroll.addView(content);setContentView(scroll);
   int pad=(int)(24*getResources().getDisplayMetrics().density);content.setPadding(pad,pad,pad,pad);
   scroll.setOnApplyWindowInsetsListener((v,insets)->{content.setPadding(pad,pad+insets.getSystemWindowInsetTop(),pad,pad+insets.getSystemWindowInsetBottom());return insets;});
   TextView title=text(content,getString(R.string.app_name),30);title.setTextColor(Color.rgb(18,33,49));
-  text(content,"v0.4 · Bluetooth receiver",14);
+  text(content,"v"+BuildConfig.VERSION_NAME+" · Bluetooth receiver",14);
   SharedPreferences prefs=getSharedPreferences("bridge",MODE_PRIVATE);
-  address=field(content,"Server address",prefs.getString("url",""));address.setInputType(17);
+  if(!prefs.getBoolean("cloudDefaultApplied",false)){
+   String previous=prefs.getString("url","");
+   SharedPreferences.Editor edit=prefs.edit().putBoolean("cloudDefaultApplied",true);
+   if(previous.isEmpty()||previous.startsWith("http://10.")||previous.startsWith("http://192.168.")||previous.matches("http://172\\.(1[6-9]|2[0-9]|3[01])\\..*"))edit.putString("url",BuildConfig.DEFAULT_SERVER_URL);
+   edit.apply();
+  }
+  address=field(content,"Server address",prefs.getString("url",BuildConfig.DEFAULT_SERVER_URL));address.setInputType(17);
   key=field(content,"Connector key",prefs.getString("key",""));key.setInputType(129);
   compatibility=new Switch(this);compatibility.setText("Compatibility mode");compatibility.setChecked(prefs.getBoolean("compatibility",true));content.addView(compatibility);
   text(content,"Change mode while the receiver is stopped. Leave server fields blank to test Bluetooth only.",13);
@@ -44,7 +50,6 @@ public class MainActivity extends Activity {
   button(content,"Stop receiver",v->{stopService(new Intent(this,BridgeService.class));});
   status=text(content,"Stopped",15);
   button(content,"Test Bluetooth to another device",v->testBluetooth());
-  button(content,"Send CBL app to Mac",v->startActivity(new Intent(this,ExportAppActivity.class)));
   text(content,"For a connection test, install this APK on the CBL tablet too. Keep the receiver running on the phone, then use Test Bluetooth on the tablet.",13);
  }
  private TextView text(LinearLayout box,String s,int size){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextIsSelectable(true);t.setPadding(0,14,0,12);t.setTextColor(Color.rgb(85,101,112));box.addView(t);return t;}

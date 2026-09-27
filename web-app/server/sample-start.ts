@@ -1,6 +1,8 @@
 import { prepareSample, sampleDirectory, samplePassword } from "./sample";
 
-prepareSample();
+await prepareSample();
+process.env.FOCUS_LOCAL = "1";
+process.env.SECURE_COOKIES = "0";
 process.env.DATA_DIR = sampleDirectory;
 process.env.HOST = "127.0.0.1";
 process.env.PORT ||= "4310";

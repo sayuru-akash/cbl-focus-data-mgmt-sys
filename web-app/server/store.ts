@@ -1,8 +1,8 @@
-import { Database } from "bun:sqlite";
+import { mapAsync } from "./db";
+import { openDatabase, type DataConnection } from "./db";
 import { createHash, randomUUID } from "node:crypto";
 import { decodePrint, parseReceipt } from "./receipt";
 import { Inventory, cents, productIdentity } from "./inventory";
-
 export class AppError extends Error {
   constructor(
     message: string,
@@ -27,12 +27,17 @@ export const units = (v: unknown) =>
     ? Math.round(v * 1000)
     : fail("Use a positive quantity with up to 3 decimals");
 export class Store {
-  db: Database;
-  inventory: Inventory;
-  constructor(path: string) {
-    this.db = new Database(path, { create: true });
-    this.db
-      .exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
+  inventory!: Inventory;
+  private constructor(public db: DataConnection) {}
+  static async open(path: string, schema = "public") {
+    const store = new Store(await openDatabase(path, schema));
+    await store.db.transaction(async () => {
+      await store.initialize();
+    })();
+    return store;
+  }
+  private async initialize() {
+    await this.db.exec(`
  CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,expires INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS products(id TEXT PRIMARY KEY,sku TEXT UNIQUE NOT NULL,name TEXT NOT NULL,unit TEXT NOT NULL,stock INTEGER NOT NULL CHECK(stock>=0),minimum INTEGER NOT NULL DEFAULT 0,archived INTEGER NOT NULL DEFAULT 0);
@@ -41,52 +46,61 @@ export class Store {
  CREATE TABLE IF NOT EXISTS movements(id TEXT PRIMARY KEY,product_id TEXT NOT NULL REFERENCES products(id),delta INTEGER NOT NULL,reason TEXT NOT NULL,bill_id TEXT REFERENCES bills(id),created TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS customers(id TEXT PRIMARY KEY,outlet_id TEXT NOT NULL UNIQUE,name TEXT NOT NULL,address TEXT NOT NULL,phone TEXT NOT NULL,created TEXT NOT NULL,last_seen TEXT NOT NULL);
  `);
-    const productColumns = this.db
+    const productColumns = (await this.db
       .query("PRAGMA table_info(products)")
-      .all() as { name: string }[];
+      .all()) as {
+      name: string;
+    }[];
     if (!productColumns.some((c) => c.name === "match_name")) {
-      this.db.transaction(() => {
-        this.db.exec(
+      await this.db.transaction(async () => {
+        await this.db.exec(
           "ALTER TABLE products ADD COLUMN match_name TEXT NOT NULL DEFAULT ''",
         );
-        for (const p of this.db.query("SELECT id,name FROM products").all() as {
+        for (const p of (await this.db
+          .query("SELECT id,name FROM products")
+          .all()) as {
           id: string;
           name: string;
         }[])
-          this.db
+          await this.db
             .query("UPDATE products SET match_name=? WHERE id=?")
             .run(productIdentity(p.name), p.id);
       })();
     }
-    this.db.exec(
+    await this.db.exec(
       "CREATE INDEX IF NOT EXISTS product_match ON products(match_name,upper(unit)) WHERE archived=0",
     );
     this.inventory = new Inventory(this);
-    const columns = this.db.query("PRAGMA table_info(bills)").all() as {
+    await this.inventory.initialize();
+    const columns = (await this.db.query("PRAGMA table_info(bills)").all()) as {
       name: string;
     }[];
     if (!columns.some((column) => column.name === "revision"))
-      this.db.exec(
+      await this.db.exec(
         "ALTER TABLE bills ADD COLUMN revision INTEGER NOT NULL DEFAULT 1",
       );
     if (!columns.some((column) => column.name === "receipt"))
-      this.db.exec("ALTER TABLE bills ADD COLUMN receipt TEXT");
+      await this.db.exec("ALTER TABLE bills ADD COLUMN receipt TEXT");
     if (!columns.some((column) => column.name === "customer_id"))
-      this.db.exec(
+      await this.db.exec(
         "ALTER TABLE bills ADD COLUMN customer_id TEXT REFERENCES customers(id)",
       );
-    this.db.exec(
+    await this.db.exec(
       "CREATE INDEX IF NOT EXISTS bills_customer_status ON bills(customer_id,status,received); CREATE INDEX IF NOT EXISTS bills_status_received ON bills(status,received)",
     );
-    this.db.transaction(() => {
-      const pending = this.db
+    await this.db.transaction(async () => {
+      const pending = (await this.db
         .query("SELECT id FROM bills WHERE receipt IS NULL")
-        .all() as { id: string }[];
-      for (const bill of pending) this.extractReceipt(bill.id);
+        .all()) as {
+        id: string;
+      }[];
+      for (const bill of pending) await this.extractReceipt(bill.id);
     })();
   }
-  private extractReceipt(id: string) {
-    const bill = this.db.query("SELECT * FROM bills WHERE id=?").get(id) as any;
+  private async extractReceipt(id: string) {
+    const bill = (await this.db
+      .query("SELECT * FROM bills WHERE id=?")
+      .get(id)) as any;
     const decoded =
       bill.mime === "application/pdf"
         ? { preview: "", uncertain: false }
@@ -97,9 +111,9 @@ export class Store {
     if (receipt?.outletId)
       customerId =
         (
-          this.db
+          (await this.db
             .query("SELECT id FROM customers WHERE outlet_id=?")
-            .get(receipt.outletId) as any
+            .get(receipt.outletId)) as any
         )?.id || null;
     let number = bill.number,
       shop = bill.shop,
@@ -114,7 +128,7 @@ export class Store {
     ) {
       shop = receipt.shop;
       if (
-        this.db
+        await this.db
           .query(
             "SELECT id FROM bills WHERE number=? AND status<>'rejected' AND id<>?",
           )
@@ -126,8 +140,8 @@ export class Store {
       else number = receipt.number;
       if (!receipt.warnings.length)
         items = JSON.stringify(
-          receipt.items.map((item, sourceLine) => ({
-            productId: this.inventory.match(item.name, item.unit),
+          await mapAsync(receipt.items, async (item, sourceLine) => ({
+            productId: await this.inventory.match(item.name, item.unit),
             quantity: item.quantity,
             sourceLine,
             mrp: item.mrp ?? null,
@@ -135,7 +149,7 @@ export class Store {
           })),
         );
     }
-    this.db
+    await this.db
       .query(
         "UPDATE bills SET preview=?,receipt=?,number=?,shop=?,items=?,customer_id=? WHERE id=?",
       )
@@ -149,22 +163,24 @@ export class Store {
         id,
       );
   }
-  setting(key: string) {
+  async setting(key: string) {
     return (
-      this.db.query("SELECT value FROM settings WHERE key=?").get(key) as {
+      (await this.db
+        .query("SELECT value FROM settings WHERE key=?")
+        .get(key)) as {
         value: string;
       } | null
     )?.value;
   }
-  private approveCustomer(bill: any) {
+  private async approveCustomer(bill: any) {
     const receipt = bill.receipt;
     if (!receipt?.outletId) return;
-    const existing = this.db
+    const existing = (await this.db
       .query("SELECT * FROM customers WHERE outlet_id=?")
-      .get(receipt.outletId) as any;
+      .get(receipt.outletId)) as any;
     const customerId = existing?.id || randomUUID();
     if (!existing) {
-      this.db
+      await this.db
         .query("INSERT INTO customers VALUES (?,?,?,?,?,?,?)")
         .run(
           customerId,
@@ -176,18 +192,18 @@ export class Store {
           bill.received,
         );
     } else {
-      const latest = this.db
+      const latest = (await this.db
         .query(
           "SELECT COALESCE(NULLIF(json_extract(receipt,'$.date'),''),substr(received,1,10)) date,received FROM bills WHERE customer_id=? AND status='accepted' ORDER BY date DESC,received DESC LIMIT 1",
         )
-        .get(customerId) as any;
+        .get(customerId)) as any;
       const billDate = receipt.date || bill.received.slice(0, 10);
       if (
         !latest ||
         billDate > latest.date ||
         (billDate === latest.date && bill.received >= latest.received)
       )
-        this.db
+        await this.db
           .query(
             "UPDATE customers SET name=?,address=?,phone=?,last_seen=? WHERE id=?",
           )
@@ -199,72 +215,78 @@ export class Store {
             customerId,
           );
     }
-    this.db
+    await this.db
       .query("UPDATE bills SET customer_id=? WHERE id=?")
       .run(customerId, bill.id);
   }
-  set(key: string, value: string) {
-    this.db
+  async set(key: string, value: string) {
+    await this.db
       .query("INSERT OR REPLACE INTO settings VALUES (?,?)")
       .run(key, value);
   }
-  products() {
-    return this.db
-      .query(
-        "SELECT * FROM products WHERE archived=0 ORDER BY name COLLATE NOCASE",
-      )
-      .all()
-      .map((r: any) => ({
+  async products() {
+    return await mapAsync(
+      await this.db
+        .query(
+          "SELECT * FROM products WHERE archived=0 ORDER BY name COLLATE NOCASE",
+        )
+        .all(),
+      async (r: any) => ({
         ...r,
         stock: r.stock / 1000,
         minimum: r.minimum / 1000,
-        lots: this.inventory.lots(r.id),
-      }));
+        lots: await this.inventory.lots(r.id),
+      }),
+    );
   }
-  product(id: string) {
-    return this.db
+  async product(id: string) {
+    return (await this.db
       .query("SELECT * FROM products WHERE id=? AND archived=0")
-      .get(id) as any;
+      .get(id)) as any;
   }
-  saveProduct(input: any, id?: string) {
+  async saveProduct(input: any, id?: string) {
     let sku = string(input.sku || "", 80).toUpperCase();
     const name = string(input.name),
       unit = string(input.unit, 30) || "pcs",
       minimum = units(input.minimum ?? 0);
     if (!name) fail("Name is required");
     const stock = units(input.stock ?? 0);
-    return this.db.transaction(() => {
-      if (!sku) sku = id ? this.product(id)?.sku : this.inventory.nextSku();
+    return await this.db.transaction(async () => {
+      if (!sku)
+        sku = id
+          ? (await this.product(id))?.sku
+          : await this.inventory.nextSku();
       if (
-        this.db
+        await this.db
           .query("SELECT id FROM products WHERE upper(sku)=? AND id<>?")
           .get(sku, id || "")
       )
         fail("This SKU already exists");
       if (id) {
-        if (!this.product(id)) throw new AppError("Item not found", 404);
+        if (!(await this.product(id)))
+          throw new AppError("Item not found", 404);
         if (
-          this.product(id).unit.toUpperCase() !== unit.toUpperCase() &&
-          this.db
+          (await this.product(id)).unit.toUpperCase() !== unit.toUpperCase() &&
+          (await this.db
             .query("SELECT id FROM movements WHERE product_id=? LIMIT 1")
-            .get(id)
+            .get(id))
         )
           fail("An item with stock history keeps its original unit");
-        this.db
+        await this.db
           .query(
             "UPDATE products SET sku=?,name=?,unit=?,minimum=?,match_name=? WHERE id=?",
           )
           .run(sku, name, unit, minimum, productIdentity(name), id);
       } else {
         id = randomUUID();
-        this.db
+        await this.db
           .query(
             "INSERT INTO products(id,sku,name,unit,stock,minimum,match_name) VALUES (?,?,?,?,?,?,?)",
           )
           .run(id, sku, name, unit, stock, minimum, productIdentity(name));
         if (stock) {
-          this.movement(id, stock, "Opening stock");
-          this.inventory.addLot(
+          await this.movement(id, stock, "Opening stock");
+          await this.inventory.addLot(
             id,
             stock,
             cents(input.costPrice),
@@ -275,50 +297,60 @@ export class Store {
       return id;
     })();
   }
-  movement(
+  async movement(
     id: string,
     delta: number,
     reason: string,
     billId: string | null = null,
   ) {
-    this.db
+    await this.db
       .query("INSERT INTO movements VALUES (?,?,?,?,?,?)")
       .run(randomUUID(), id, delta, reason, billId, new Date().toISOString());
   }
-  adjust(id: string, input: any) {
+  async adjust(id: string, input: any) {
     const amount = units(Math.abs(input.quantity));
     const reason = string(input.reason, 300);
     if (!amount || !reason) fail("Quantity and reason are required");
     const delta = input.quantity < 0 ? -amount : amount;
-    this.db.transaction(() => {
-      const p = this.product(id);
+    await this.db.transaction(async () => {
+      const p = await this.product(id);
       if (!p) throw new AppError("Item not found", 404);
       if (p.stock + delta < 0) fail("Not enough stock");
-      this.inventory.adjustLots(id, delta, input);
-      this.db
+      await this.inventory.adjustLots(id, delta, input);
+      await this.db
         .query("UPDATE products SET stock=stock+? WHERE id=?")
         .run(delta, id);
-      this.movement(id, delta, reason);
+      await this.movement(id, delta, reason);
     })();
   }
-  archive(id: string) {
-    if (!this.product(id)) throw new AppError("Item not found", 404);
-    this.db.query("UPDATE products SET archived=1 WHERE id=?").run(id);
+  async archive(id: string) {
+    await this.db.transaction(async()=>{
+      if(!(await this.product(id)))throw new AppError('Item not found',404);
+      await this.db.query('UPDATE products SET archived=1 WHERE id=?').run(id);
+    })();
   }
-  history(id: string) {
-    return this.db
-      .query("SELECT * FROM movements WHERE product_id=? ORDER BY created DESC")
-      .all(id)
-      .map((r: any) => ({ ...r, delta: r.delta / 1000 }));
+  async history(id: string) {
+    return (
+      await this.db
+        .query(
+          "SELECT * FROM movements WHERE product_id=? ORDER BY created DESC",
+        )
+        .all(id)
+    ).map((r: any) => ({ ...r, delta: r.delta / 1000 }));
   }
-  ingest(raw: Uint8Array, filename: string, mime: string, source: string) {
+  async ingest(
+    raw: Uint8Array,
+    filename: string,
+    mime: string,
+    source: string,
+  ) {
     if (!raw.length) fail("The file is empty");
     if (raw.length > 10 * 1024 * 1024)
       throw new AppError("Maximum file size is 10 MB", 413);
     const hash = createHash("sha256").update(raw).digest("hex");
-    const old = this.db
+    const old = (await this.db
       .query("SELECT id FROM bills WHERE hash=?")
-      .get(hash) as any;
+      .get(hash)) as any;
     if (old) return { id: old.id, duplicate: true };
     const id = randomUUID();
     const isPdf = Buffer.from(raw.subarray(0, 5)).toString() === "%PDF-";
@@ -328,8 +360,8 @@ export class Store {
           .decode(raw)
           .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "")
           .slice(0, 100000);
-    this.db.transaction(() => {
-      this.db
+    await this.db.transaction(async () => {
+      await this.db
         .query(
           "INSERT INTO bills(id,hash,filename,mime,raw,preview,source,received) VALUES (?,?,?,?,?,?,?,?)",
         )
@@ -343,24 +375,27 @@ export class Store {
           string(source, 80),
           new Date().toISOString(),
         );
-      this.extractReceipt(id);
+      await this.extractReceipt(id);
     })();
     return { id, duplicate: false };
   }
-  bills() {
-    return this.db
-      .query(
-        "SELECT id,filename,mime,source,received,status,number,shop,items,note,decided,receipt FROM bills ORDER BY received DESC",
-      )
-      .all()
-      .map((r: any) => ({
-        ...r,
-        items: JSON.parse(r.items),
-        receipt: JSON.parse(r.receipt || "null"),
-      }));
+  async bills() {
+    return (
+      await this.db
+        .query(
+          "SELECT id,filename,mime,source,received,status,number,shop,items,note,decided,receipt FROM bills ORDER BY received DESC",
+        )
+        .all()
+    ).map((r: any) => ({
+      ...r,
+      items: JSON.parse(r.items),
+      receipt: JSON.parse(r.receipt || "null"),
+    }));
   }
-  bill(id: string) {
-    const r = this.db.query("SELECT * FROM bills WHERE id=?").get(id) as any;
+  async bill(id: string) {
+    const r = (await this.db
+      .query("SELECT * FROM bills WHERE id=?")
+      .get(id)) as any;
     if (!r) throw new AppError("Bill not found", 404);
     return {
       ...r,
@@ -368,32 +403,32 @@ export class Store {
       receipt: JSON.parse(r.receipt || "null"),
     };
   }
-  reviewBill(id: string) {
-    const b = this.bill(id);
+  async reviewBill(id: string) {
+    const b = await this.bill(id);
     if (b.status === "pending")
-      b.items = b.items.map((item: any) => {
+      b.items = await mapAsync(b.items, async (item: any) => {
         if (item.productId || item.sourceLine === undefined) return item;
         const source = b.receipt?.items[item.sourceLine];
         return source
           ? {
               ...item,
-              productId: this.inventory.match(source.name, source.unit),
+              productId: await this.inventory.match(source.name, source.unit),
             }
           : item;
       });
     return b;
   }
-  saveBill(id: string, input: any) {
+  async saveBill(id: string, input: any) {
     const number = string(input.number, 100),
       shop = string(input.shop),
       note = string(input.note ?? "", 1000);
     if (!Array.isArray(input.items) || input.items.length > 500)
       fail("Invalid bill items");
-    const originalBill = this.bill(id);
-    const items = input.items.map((item: any) => {
+    const originalBill = await this.bill(id);
+    const items = await mapAsync(input.items, async (item: any) => {
       const productId = string(item.productId, 50);
       const quantity = units(item.quantity);
-      if (productId && !this.product(productId))
+      if (productId && !(await this.product(productId)))
         fail("Choose an active stock item");
       if (!quantity) fail("Quantity must be greater than zero");
       const sourceLine = item.sourceLine;
@@ -418,25 +453,25 @@ export class Store {
         ...(sourceLine === undefined ? {} : { sourceLine }),
       };
     });
-    this.db.transaction(() => {
-      const current = this.bill(id);
+    await this.db.transaction(async () => {
+      const current = await this.bill(id);
       if (current.status !== "pending") fail("This bill is already closed");
       if (input.revision !== undefined && input.revision !== current.revision)
         throw new AppError(
           "This bill changed in another window. Reload it before saving.",
           409,
         );
-      this.db
+      await this.db
         .query(
           "UPDATE bills SET number=?,shop=?,items=?,note=?,revision=revision+1 WHERE id=?",
         )
         .run(number, shop, JSON.stringify(items), note, id);
     })();
-    return { revision: this.bill(id).revision };
+    return { revision: (await this.bill(id)).revision };
   }
-  decide(id: string, status: "accepted" | "rejected", revision?: number) {
-    return this.db.transaction(() => {
-      const b = this.bill(id);
+  async decide(id: string, status: "accepted" | "rejected", revision?: number) {
+    return await this.db.transaction(async () => {
+      const b = await this.bill(id);
       if (b.status === status) return { unchanged: true };
       if (b.status !== "pending") fail("This bill is already closed");
       if (revision !== undefined && revision !== b.revision)
@@ -456,20 +491,20 @@ export class Store {
           );
         }
         for (const [pid, qty] of totals) {
-          const p = this.product(pid);
+          const p = await this.product(pid);
           if (!p) fail("A stock item is no longer available");
           if (p.stock < qty) fail(`Not enough stock: ${p.name}`);
         }
-        this.inventory.consume(b);
+        await this.inventory.consume(b);
         for (const [pid, qty] of totals) {
-          this.db
+          await this.db
             .query("UPDATE products SET stock=stock-? WHERE id=?")
             .run(qty, pid);
-          this.movement(pid, -qty, `Bill ${b.number}`, id);
+          await this.movement(pid, -qty, `Bill ${b.number}`, id);
         }
-        this.approveCustomer(b);
+        await this.approveCustomer(b);
       }
-      this.db
+      await this.db
         .query(
           "UPDATE bills SET status=?,decided=?,revision=revision+1 WHERE id=?",
         )

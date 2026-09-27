@@ -12,7 +12,11 @@ const schema = z.object({
   customer: z.string().max(80).optional(),
   product: z.string().max(80).optional(),
 });
-export function grid(store: Store, kind: string, params: URLSearchParams) {
+export async function grid(
+  store: Store,
+  kind: string,
+  params: URLSearchParams,
+) {
   const parsed = schema.safeParse(Object.fromEntries(params));
   if (!parsed.success) throw new AppError("Invalid table filters");
   const f = parsed.data;
@@ -157,12 +161,12 @@ export function grid(store: Store, kind: string, params: URLSearchParams) {
   if (!sorts[requested]) throw new AppError("Invalid sort column");
   const base = `FROM (${source}) rows${where}`;
   const total = (
-    store.db.query(`SELECT COUNT(*) total ${base}`).get(...args) as {
+    (await store.db.query(`SELECT COUNT(*) total ${base}`).get(...args)) as {
       total: number;
     }
   ).total;
   const page = Math.min(f.page, Math.max(1, Math.ceil(total / f.size)));
-  const rows = store.db
+  const rows = await store.db
     .query(
       `SELECT * ${base} ORDER BY ${sorts[requested]} ${f.dir === "asc" ? "ASC" : "DESC"},id ASC LIMIT ? OFFSET ?`,
     )

@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .env
+.env.*
+!.env.example
+.vercel/
 web-app/data/
 *.log
 .DS_Store
@@ -13,3 +16,4 @@ android-connector/local-transfer.properties
 web-app/.next/
 web-app/next-env.d.ts
 *.tsbuildinfo
+.vercel

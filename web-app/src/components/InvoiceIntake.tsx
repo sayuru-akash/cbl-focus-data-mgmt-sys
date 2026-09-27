@@ -25,6 +25,7 @@ export type Intake = {
   revision: number;
   purchase_id?: string;
   processing?: boolean;
+  photos_removed?: number;
   pages: {
     id: string;
     filename: string;
@@ -172,9 +173,24 @@ export default function InvoiceIntake({
       let current = intake;
       if (!current) {
         setPhase(`Uploading ${files.length} photos…`);
-        const form = new FormData();
-        files.forEach((f) => form.append("pages", f));
-        current = await api<Intake>("/intakes", { method: "POST", body: form });
+        const metadata = await Promise.all(files.map(async f => {
+          const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', await f.arrayBuffer()));
+          return {name:f.name, size:f.size, mime:f.type, hash:Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('')};
+        }));
+        const upload = await api<{local?:boolean,id?:string,files?:{url:string,headers:Record<string,string>}[]}>("/intake-uploads",{method:"POST",body:JSON.stringify({files:metadata})});
+        if(upload.local){
+          const form=new FormData();files.forEach(f=>form.append('pages',f));
+          current=await api<Intake>('/intakes',{method:'POST',body:form});
+        } else {
+          for(let i=0;i<files.length;i++){
+            setPhase(`Uploading photo ${i+1} of ${files.length}…`);
+            const target=upload.files![i]!;
+            const response=await fetch(target.url,{method:'PUT',headers:target.headers,body:files[i]});
+            if(!response.ok)throw new Error('Photo upload failed. Try again.');
+          }
+          setPhase('Saving photos…');
+          current=await api<Intake>(`/intake-uploads/${upload.id}/complete`,{method:'POST'});
+        }
         apply(current);
         onSaved();
       }
@@ -184,10 +200,12 @@ export default function InvoiceIntake({
         if (!id) router.replace(`/stock/invoices/${current.id}`);
         return;
       }
-      setPhase(`Reading ${current.pages.length} pages…`);
-      apply(
-        await api<Intake>(`/intakes/${current.id}/process`, { method: "POST" }),
-      );
+      do {
+        const read=current.pages.filter(p=>p.processed).length;
+        setPhase(`Reading page ${Math.min(read+1,current.pages.length)} of ${current.pages.length}…`);
+        current=await api<Intake & {more?:boolean}>(`/intakes/${current.id}/process`,{method:'POST'});
+        apply(current);
+      } while ((current as Intake & {more?:boolean}).more);
       onSaved();
       setStep(-1);
       setPage(0);
@@ -485,7 +503,7 @@ export default function InvoiceIntake({
                       ))}
                     </select>
                   </label>
-                  {photo && (
+                  {photo && !intake.photos_removed && (
                     <a
                       href={`/api/intakes/${intake.id}/pages/${photo.id}`}
                       target="_blank"
@@ -498,7 +516,7 @@ export default function InvoiceIntake({
                       />
                     </a>
                   )}
-                  {photo && (
+                  {photo && !intake.photos_removed && (
                     <a
                       className="text-button"
                       href={`/api/intakes/${intake.id}/pages/${photo.id}/original`}

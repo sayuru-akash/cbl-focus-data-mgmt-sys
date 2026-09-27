@@ -1,3 +1,4 @@
+import { openTestStore } from "./test-store";
 import { expect, test } from "bun:test";
 import { Store } from "./store";
 import { Intakes, draftIssues, lineIssues } from "./intake";
@@ -19,9 +20,9 @@ const line = (code = "CK001", unit = "MC", mrp = 600) => ({
   productId: "",
   reviewed: true,
 });
-function setup(draft?: IntakeDraft) {
-  const store = new Store(":memory:"),
-    intakes = new Intakes(store),
+async function setup(draft?: IntakeDraft) {
+  const store = await openTestStore(),
+    intakes = await Intakes.open(store),
     id = crypto.randomUUID();
   const d = draft || {
     supplier: "Example Supplier",
@@ -37,10 +38,10 @@ function setup(draft?: IntakeDraft) {
     lines: [line()],
     headerReviewed: true,
   };
-  store.db
+  await store.db
     .query("INSERT INTO intakes(id,draft,created) VALUES (?,?,?)")
     .run(id, JSON.stringify(d), new Date().toISOString());
-  store.db
+  await store.db
     .query(
       "INSERT INTO intake_pages(id,intake_id,position,filename,mime,hash,raw) VALUES (?,?,?,?,?,?,?)",
     )
@@ -64,37 +65,39 @@ test("MC pack sizes come from explicit descriptions, DZ remains 12", () => {
   expect(packFrom("CAKE 200GX24EA", "DZ").size).toBe(12);
   expect(readMoney("45.679.68")).toBe(45679.68);
 });
-test("one reviewed invoice atomically creates products, converts packets, allocates discount and posts once", () => {
-  const { store, intakes, id } = setup();
+test("one reviewed invoice atomically creates products, converts packets, allocates discount and posts once", async () => {
+  const { store, intakes, id } = await setup();
   try {
-    expect(store.products()).toHaveLength(0);
-    const received = intakes.receive(id, 1);
+    expect(await store.products()).toHaveLength(0);
+    const received = await intakes.receive(id, 1);
     expect(received.status).toBe("received");
-    expect(store.products()[0]).toMatchObject({
+    expect((await store.products())[0]).toMatchObject({
       sku: "114309834-CK001",
       stock: 9,
       unit: "PKT",
     });
-    expect(store.products()[0].lots[0]).toMatchObject({
+    expect((await store.products())[0].lots[0]).toMatchObject({
       costPrice: 1333.33,
       mrp: 600,
     });
-    intakes.receive(id, 1);
-    expect(store.products()[0].stock).toBe(9);
-    expect(store.db.query("SELECT count(*) n FROM purchases").get()).toEqual({
+    await intakes.receive(id, 1);
+    expect((await store.products())[0].stock).toBe(9);
+    expect(
+      await store.db.query("SELECT count(*) n FROM purchases").get(),
+    ).toEqual({
       n: 1,
     });
   } finally {
-    store.db.close();
+    await store.db.close();
   }
 });
-test("unreviewed rows, missing pages, duplicate pages and mismatched invoice numbers block receiving", () => {
-  const { store, intakes, id, d } = setup();
+test("unreviewed rows, missing pages, duplicate pages and mismatched invoice numbers block receiving", async () => {
+  const { store, intakes, id, d } = await setup();
   try {
     d.lines[0]!.reviewed = false;
-    intakes.save(id, { revision: 1, draft: d });
-    expect(() => intakes.receive(id, 2)).toThrow("Review every item");
-    expect(store.products()).toHaveLength(0);
+    await intakes.save(id, { revision: 1, draft: d });
+    await expect(intakes.receive(id, 2)).rejects.toThrow("Review every item");
+    expect(await store.products()).toHaveLength(0);
     d.pages[0]!.count = 2;
     expect(draftIssues(d, 1).join(" ")).toContain("page numbers");
     d.pages[0]!.invoice = "ANOTHER";
@@ -102,11 +105,11 @@ test("unreviewed rows, missing pages, duplicate pages and mismatched invoice num
     d.pages.push({ ...d.pages[0]! });
     expect(draftIssues(d, 2).join(" ")).toContain("Duplicate document");
   } finally {
-    store.db.close();
+    await store.db.close();
   }
 });
-test("missing MRP, incompatible conversion and inconsistent totals cannot add stock", () => {
-  const { store, d } = setup();
+test("missing MRP, incompatible conversion and inconsistent totals cannot add stock", async () => {
+  const { store, d } = await setup();
   try {
     d.lines[0]!.mrp = null;
     expect(lineIssues(d.lines[0]!).join(" ")).toContain("MRP");
@@ -119,18 +122,18 @@ test("missing MRP, incompatible conversion and inconsistent totals cannot add st
     d.gross = 1;
     expect(draftIssues(d, 1).join(" ")).toContain("Line amounts");
   } finally {
-    store.db.close();
+    await store.db.close();
   }
 });
-test("same names with different supplier codes are distinct products; price variants are separate lots", () => {
-  const { store, intakes, id, d } = setup();
+test("same names with different supplier codes are distinct products; price variants are separate lots", async () => {
+  const { store, intakes, id, d } = await setup();
   try {
     d.lines.push({ ...line("CK002"), amount: 12600 });
     d.gross = 25200;
     d.total = 24600;
-    intakes.save(id, { revision: 1, draft: d });
-    intakes.receive(id, 2);
-    expect(store.products()).toHaveLength(2);
+    await intakes.save(id, { revision: 1, draft: d });
+    await intakes.receive(id, 2);
+    expect(await store.products()).toHaveLength(2);
     const second = crypto.randomUUID();
     d.number = "TAX002";
     d.pages[0]!.invoice = "TAX002";
@@ -138,10 +141,10 @@ test("same names with different supplier codes are distinct products; price vari
     d.lines = [line("CK001", "MC", 650)];
     d.gross = 12600;
     d.total = 12000;
-    store.db
+    await store.db
       .query("INSERT INTO intakes(id,draft,created) VALUES (?,?,?)")
       .run(second, JSON.stringify(d), "2026");
-    store.db
+    await store.db
       .query(
         "INSERT INTO intake_pages(id,intake_id,position,filename,mime,hash,raw) VALUES (?,?,?,?,?,?,?)",
       )
@@ -154,24 +157,26 @@ test("same names with different supplier codes are distinct products; price vari
         "h2",
         new Uint8Array([1]),
       );
-    intakes.receive(second, 1);
-    expect(store.products()).toHaveLength(2);
-    const p = store.products().find((p: any) => p.sku.endsWith("CK001"))!;
+    await intakes.receive(second, 1);
+    expect(await store.products()).toHaveLength(2);
+    const p = (await store.products()).find((p: any) =>
+      p.sku.endsWith("CK001"),
+    )!;
     expect(p.stock).toBe(18);
     expect(p.lots.map((l: any) => l.mrp)).toEqual([600, 650]);
   } finally {
-    store.db.close();
+    await store.db.close();
   }
 });
-test("a supplier code cannot be reassigned; failures roll back earlier rows", () => {
-  const { store, intakes, id, d } = setup();
+test("a supplier code cannot be reassigned; failures roll back earlier rows", async () => {
+  const { store, intakes, id, d } = await setup();
   try {
-    const productId = store.saveProduct({
+    const productId = await store.saveProduct({
       sku: "EXISTING",
       name: "Cake",
       unit: "PKT",
     });
-    const otherId = store.saveProduct({
+    const otherId = await store.saveProduct({
       sku: "OTHER",
       name: "Different cake",
       unit: "PKT",
@@ -182,21 +187,21 @@ test("a supplier code cannot be reassigned; failures roll back earlier rows", ()
     ];
     d.gross = 25200;
     d.total = 24600;
-    intakes.save(id, { revision: 1, draft: d });
-    expect(() => intakes.receive(id, 2)).toThrow("already linked");
-    expect(store.products()[0].stock).toBe(0);
-    expect(store.inventory.purchases()).toHaveLength(0);
+    await intakes.save(id, { revision: 1, draft: d });
+    await expect(intakes.receive(id, 2)).rejects.toThrow("already linked");
+    expect((await store.products())[0].stock).toBe(0);
+    expect(await store.inventory.purchases()).toHaveLength(0);
     expect(
-      store.db.query("SELECT count(*) n FROM supplier_products").get(),
+      await store.db.query("SELECT count(*) n FROM supplier_products").get(),
     ).toEqual({ n: 0 });
   } finally {
-    store.db.close();
+    await store.db.close();
   }
 });
-test("review can explicitly link changed supplier codes to one item while keeping prices separate", () => {
-  const { store, intakes, id, d } = setup();
+test("review can explicitly link changed supplier codes to one item while keeping prices separate", async () => {
+  const { store, intakes, id, d } = await setup();
   try {
-    const productId = store.saveProduct({
+    const productId = await store.saveProduct({
       sku: "STABLE",
       name: "LAYER CAKE 480G",
       unit: "PKT",
@@ -207,35 +212,37 @@ test("review can explicitly link changed supplier codes to one item while keepin
     ];
     d.gross = 25200;
     d.total = 24600;
-    intakes.save(id, { revision: 1, draft: d });
-    intakes.receive(id, 2);
-    expect(store.products()).toHaveLength(1);
-    expect(store.products()[0].sku).toBe("STABLE");
-    expect(store.products()[0].stock).toBe(18);
-    expect(store.products()[0].lots.map((l: any) => l.mrp)).toEqual([600, 650]);
+    await intakes.save(id, { revision: 1, draft: d });
+    await intakes.receive(id, 2);
+    expect(await store.products()).toHaveLength(1);
+    expect((await store.products())[0].sku).toBe("STABLE");
+    expect((await store.products())[0].stock).toBe(18);
+    expect((await store.products())[0].lots.map((l: any) => l.mrp)).toEqual([
+      600, 650,
+    ]);
     expect(
-      store.db
+      await store.db
         .query("SELECT count(*) n FROM supplier_products WHERE product_id=?")
         .get(productId!),
     ).toEqual({ n: 2 });
   } finally {
-    store.db.close();
+    await store.db.close();
   }
 });
-test("stale drafts cannot overwrite current review, and duplicate tax invoices cannot post twice", () => {
-  const { store, intakes, id, d } = setup();
+test("stale drafts cannot overwrite current review, and duplicate tax invoices cannot post twice", async () => {
+  const { store, intakes, id, d } = await setup();
   try {
-    intakes.save(id, { revision: 1, draft: d });
-    expect(() => intakes.save(id, { revision: 1, draft: d })).toThrow(
+    await intakes.save(id, { revision: 1, draft: d });
+    await expect(intakes.save(id, { revision: 1, draft: d })).rejects.toThrow(
       "changed",
     );
-    expect(() => intakes.receive(id, 1)).toThrow("changed");
-    intakes.receive(id, 2);
+    await expect(intakes.receive(id, 1)).rejects.toThrow("changed");
+    await intakes.receive(id, 2);
     const duplicate = crypto.randomUUID();
-    store.db
+    await store.db
       .query("INSERT INTO intakes(id,draft,created) VALUES (?,?,?)")
       .run(duplicate, JSON.stringify(d), "2026");
-    store.db
+    await store.db
       .query(
         "INSERT INTO intake_pages(id,intake_id,position,filename,mime,hash,raw) VALUES (?,?,?,?,?,?,?)",
       )
@@ -248,15 +255,14 @@ test("stale drafts cannot overwrite current review, and duplicate tax invoices c
         "different-photo",
         new Uint8Array([2]),
       );
-    expect(() => intakes.receive(duplicate, 1)).toThrow(
+    await expect(intakes.receive(duplicate, 1)).rejects.toThrow(
       "already been received",
     );
-    expect(store.products()[0].stock).toBe(9);
+    expect((await store.products())[0].stock).toBe(9);
   } finally {
-    store.db.close();
+    await store.db.close();
   }
 });
-
 test("carton conversion distinguishes weight, nested packs and incomplete counts", () => {
   expect(packFrom("CAKE 480G × 6EA", "MC").size).toBe(6);
   expect(packFrom("DRINK 200ML X24EA", "MC").size).toBe(24);
@@ -272,10 +278,9 @@ test("carton conversion distinguishes weight, nested packs and incomplete counts
     "Individual units must contain 1 packet",
   );
 });
-
 test("photo selection validation rejects duplicates and oversize uploads without drafts", async () => {
-  const store = new Store(":memory:");
-  const intakes = new Intakes(store);
+  const store = await openTestStore();
+  const intakes = await Intakes.open(store);
   try {
     const photo = new File([new Uint8Array([1, 2, 3])], "page.jpg", {
       type: "image/jpeg",
@@ -291,11 +296,11 @@ test("photo selection validation rejects duplicates and oversize uploads without
     await expect(
       intakes.create([new File(["text"], "page.txt", { type: "text/plain" })]),
     ).rejects.toThrow("JPG");
-    expect(intakes.list()).toHaveLength(0);
+    expect(await intakes.list()).toHaveLength(0);
     const created = await intakes.create([photo]);
     expect(created.pages).toHaveLength(1);
     expect((await intakes.create([photo])).id).toBe(created.id);
   } finally {
-    store.db.close();
+    await store.db.close();
   }
 });
