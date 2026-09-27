@@ -65,6 +65,61 @@ test("MC pack sizes come from explicit descriptions, DZ remains 12", () => {
   expect(packFrom("CAKE 200GX24EA", "DZ").size).toBe(12);
   expect(readMoney("45.679.68")).toBe(45679.68);
 });
+
+test("cached backup pages resume without rescanning, preserve repeated rows and never add stock", async () => {
+  const { store, intakes, id, d } = await setup();
+  try {
+    const empty = { ...d, lines: [], pages: [], headerReviewed: false };
+    await store.db
+      .query("UPDATE intakes SET draft=? WHERE id=?")
+      .run(JSON.stringify(empty), id);
+    const item = {
+      code: "CHS001",
+      description: "CHOCOLATE 45GX12DZ",
+      weight: "45G",
+      boxes: 1,
+      sold: 12,
+      unit: "DZ",
+      unitPrice: 120,
+      amount: 1440,
+    };
+    const extracted = {
+      supplier: d.supplier,
+      tin: d.tin,
+      invoice: d.number,
+      document: "DOC1",
+      date: d.date,
+      page: 1,
+      count: 1,
+      rotation: 0,
+      gross: 2880,
+      discount: 0,
+      total: 2880,
+      items: [item, item],
+    };
+    await store.db
+      .query("UPDATE intake_pages SET ocr=? WHERE intake_id=?")
+      .run(JSON.stringify({ blocks: [], extracted, provider: "gemini" }), id);
+    const result = await intakes.process(id);
+    expect(result.processing).toBe(false);
+    expect((await intakes.get(id)).processing).toBe(false);
+    expect(result.draft.lines).toHaveLength(2);
+    expect(result.draft.lines[0]!.id).not.toBe(result.draft.lines[1]!.id);
+    expect(
+      result.draft.lines.every(
+        (l: IntakeDraft["lines"][number]) => !l.reviewed && l.mrp === null,
+      ),
+    ).toBe(true);
+    expect(result.draft.headerReviewed).toBe(false);
+    expect(await store.products()).toHaveLength(0);
+    expect(
+      (await store.db.query("SELECT count(*) n FROM purchases").get()).n,
+    ).toBe(0);
+    await expect(intakes.process(id)).rejects.toThrow("already processed");
+  } finally {
+    await store.db.close();
+  }
+});
 test("one reviewed invoice atomically creates products, converts packets, allocates discount and posts once", async () => {
   const { store, intakes, id } = await setup();
   try {

@@ -3,7 +3,10 @@ import {
   extractedPage,
   parseExtractedPage,
   readVisionResponse,
+  readGeminiResponse,
+  scanWithFallback,
 } from "./ocr-vision";
+import { AppError } from "./store";
 const page = {
   supplier: "CBL FOODS",
   tin: "114309834",
@@ -123,4 +126,115 @@ test("provider outages and unreadable responses have safe retry messages", async
       }),
     ),
   ).toEqual(page);
+});
+
+test("backup runs once only for primary availability errors", async () => {
+  let calls = 0;
+  const backup = async () => {
+    calls++;
+    return page;
+  };
+  expect((await scanWithFallback(async () => page, backup)).provider).toBe(
+    "cloudflare",
+  );
+  expect(calls).toBe(0);
+  for (const status of [429, 503]) {
+    expect(
+      (
+        await scanWithFallback(async () => {
+          throw new AppError("Primary unavailable", status);
+        }, backup)
+      ).provider,
+    ).toBe("gemini");
+  }
+  expect(calls).toBe(2);
+  for (const error of [
+    new AppError("Unclear image", 422),
+    new Error("Invalid image"),
+    new AppError("Invalid request", 400),
+  ]) {
+    await expect(
+      scanWithFallback(async () => {
+        throw error;
+      }, backup),
+    ).rejects.toBe(error);
+  }
+  expect(calls).toBe(2);
+  const limited = new AppError("Primary limited", 429);
+  await expect(
+    scanWithFallback(async () => {
+      throw limited;
+    }),
+  ).rejects.toBe(limited);
+  await expect(
+    scanWithFallback(
+      async () => {
+        throw limited;
+      },
+      async () => {
+        throw new AppError("Backup limited", 429);
+      },
+    ),
+  ).rejects.toMatchObject({ status: 429, message: "Backup limited" });
+});
+
+test("Gemini accepts only complete schema-valid data and hides provider details", async () => {
+  const result = {
+    candidates: [
+      {
+        finishReason: "STOP",
+        content: {
+          parts: [
+            { thought: true, text: "private reasoning" },
+            { text: JSON.stringify(page) },
+          ],
+        },
+      },
+    ],
+  };
+  expect(await readGeminiResponse(Response.json(result))).toEqual(page);
+  const original = parseExtractedPage(
+    await readGeminiResponse(Response.json(result)),
+    0,
+  );
+  expect(original.lines[0]!.reviewed).toBe(false);
+  expect(original.lines[0]!.mrp).toBeNull();
+  for (const finishReason of ["MAX_TOKENS", "SAFETY", undefined]) {
+    await expect(
+      readGeminiResponse(
+        Response.json({
+          candidates: [{ ...result.candidates[0], finishReason }],
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 422 });
+  }
+  await expect(
+    readGeminiResponse(
+      Response.json({
+        candidates: [
+          {
+            finishReason: "STOP",
+            content: {
+              parts: [{ text: JSON.stringify({ ...page, items: [] }) }],
+            },
+          },
+        ],
+      }),
+    ),
+  ).rejects.toMatchObject({ status: 422 });
+  for (const status of [400, 401, 403, 404, 429, 500]) {
+    try {
+      await readGeminiResponse(
+        Response.json(
+          { error: { message: "SECRET_PROVIDER_DETAIL" } },
+          { status },
+        ),
+      );
+      throw new Error("Expected rejection");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).status).toBe(status === 429 ? 429 : 503);
+      expect((error as Error).message).not.toContain("SECRET_PROVIDER_DETAIL");
+    }
+  }
 });

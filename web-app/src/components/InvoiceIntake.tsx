@@ -513,18 +513,34 @@ export default function InvoiceIntake({
                     : "Process the photos to build the draft."}
                 </span>
               </div>
-              {intake.pages.map((p) => (
-                <p key={p.id}>
-                  {p.filename}
-                  {p.error ? ` · ${p.error}` : ""}
-                </p>
-              ))}
+              <ol
+                className="intake-scan-pages"
+                aria-label="Photo processing progress"
+              >
+                {intake.pages.map((p, index) => (
+                  <li key={p.id}>
+                    <div title={p.filename}>
+                      <strong>Page {index + 1}</strong>
+                      <span className="muted">
+                        {p.processed ? "Read" : "Saved"}
+                      </span>
+                    </div>
+                    {!busy && p.error && (
+                      <p className="error-text">{p.error}</p>
+                    )}
+                  </li>
+                ))}
+              </ol>
               <button
                 className="primary"
                 disabled={busy}
                 onClick={() => void process()}
               >
-                {busy ? "Processing…" : "Process photos"}
+                {busy
+                  ? "Processing…"
+                  : intake.pages.some((p) => p.processed || p.error)
+                    ? "Retry processing"
+                    : "Process photos"}
               </button>
             </>
           ) : (

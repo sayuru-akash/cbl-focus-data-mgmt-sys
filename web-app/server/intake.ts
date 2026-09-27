@@ -449,7 +449,12 @@ export class Intakes {
                   previewKey,
                   JSON.stringify(
                     "extracted" in result && result.extracted
-                      ? { blocks: result.blocks, extracted: result.extracted }
+                      ? {
+                          blocks: result.blocks,
+                          extracted: result.extracted,
+                          provider:
+                            "provider" in result ? result.provider : undefined,
+                        }
                       : result.blocks,
                   ),
                   p.id,
@@ -496,7 +501,7 @@ export class Intakes {
           "UPDATE intakes SET draft=?,revision=revision+1 WHERE id=? AND revision=?",
         )
         .run(JSON.stringify(draft), id, before.revision);
-      return await this.get(id);
+      return { ...(await this.get(id)), processing: false };
     } finally {
       await this.store.db
         .query(

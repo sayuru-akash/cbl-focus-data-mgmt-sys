@@ -1438,3 +1438,27 @@ button.primary:hover {
   gap: 8px;
   min-width: 72px;
 }
+
+.intake-scan-pages {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+  display: grid;
+  gap: 10px;
+}
+.intake-scan-pages li {
+  padding: 12px 14px;
+  border: 1px solid #e5eaf1;
+  border-radius: 8px;
+}
+.intake-scan-pages li > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 14px;
+}
+.intake-scan-pages li > p {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
