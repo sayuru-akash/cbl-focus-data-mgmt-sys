@@ -16,6 +16,8 @@ import ProductPicker from "../components/ProductPicker";
 import { api, date, type Bill, type Product } from "../api";
 import { Empty, SearchBox, ErrorText, Modal } from "../components/UI";
 import InvoiceIntake from "../components/InvoiceIntake";
+import { billReviewErrors, lineKindLabel } from "../../server/receipt";
+const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export type BillNavigationGuard = ((next: () => void) => void) | null;
 const unsavedBills = new Map<string, Bill>();
@@ -200,6 +202,17 @@ export default function BillReview({
       </div>
     );
   const editable = bill.status === "pending";
+  const reviewErrors = billReviewErrors(bill);
+  const accounting = bill.receipt?.accounting;
+  async function restorePrint() {
+    if (!bill) return;
+    setBusy(true); setError("");
+    try {
+      await api(`/bills/${id}/restore`, { method: "POST", body: JSON.stringify({revision: bill.revision}) });
+      apply(await api(`/bills/${id}`)); onUpdate();
+    } catch (e: any) { setError(e.message); }
+    finally { setBusy(false); }
+  }
   return (
     <>
       <header className="detail-header">
@@ -239,6 +252,7 @@ export default function BillReview({
               className="primary"
               disabled={
                 busy ||
+                reviewErrors.length > 0 ||
                 !bill.items.length ||
                 bill.items.some((item) => item.quantity <= 0) ||
                 !bill.number.trim() ||
@@ -287,13 +301,25 @@ export default function BillReview({
             {bill.receipt.customerAddress && (
               <p className="receipt-address">{bill.receipt.customerAddress}</p>
             )}
-            {bill.receipt.warnings.map((warning) => (
+            {reviewErrors.map((warning) => (
               <p className="receipt-warning" key={warning}>
                 {warning}
               </p>
             ))}
           </>
         )}
+        {accounting && <dl className="bill-accounting" aria-label="Bill totals">
+          <div><dt>Gross</dt><dd>Rs {money(accounting.gross)}</dd></div>
+          {accounting.discount !== 0 && <div><dt>Discount</dt><dd>- {money(accounting.discount)}</dd></div>}
+          {accounting.skuDiscount !== 0 && <div><dt>SKU discount</dt><dd>- {money(accounting.skuDiscount)}</dd></div>}
+          {accounting.returnGross !== 0 && <>
+            <div><dt>Return value</dt><dd>{money(accounting.returnGross)}</dd></div>
+            {accounting.returnReversal !== 0 && <div><dt>Reverse GRTS</dt><dd>- {money(accounting.returnReversal)}</dd></div>}
+            <div><dt>Return credit</dt><dd>- {money(accounting.returns)}</dd></div>
+          </>}
+          <div className="bill-net"><dt>Net payable</dt><dd>Rs {money(accounting.calculatedNet)}</dd></div>
+          {accounting.difference !== 0 && <div className="error"><dt>Difference from print</dt><dd>{accounting.difference === null ? "Missing total" : money(accounting.difference)}</dd></div>}
+        </dl>}
         <div className="source-title">
           <button className="text-button" onClick={() => setSource(!source)}>
             {source ? "Hide source" : "Show source"}
@@ -336,7 +362,8 @@ export default function BillReview({
         </div>
         <div className="section-title">
           <h3>Items</h3>
-          {editable && (
+          {editable && bill.receipt && reviewErrors.length > 0 && <button className="text-button" disabled={busy} onClick={() => navigate(() => void restorePrint())}>Restore printed items</button>}
+          {editable && !bill.receipt && (
             <button
               className="text-button"
               disabled={busy}
@@ -357,8 +384,11 @@ export default function BillReview({
             item.sourceLine === undefined
               ? undefined
               : bill.receipt?.items[item.sourceLine];
+          const kind = original?.kind || "sale";
+          const market = kind === "market_return";
           return (
-            <div className="receipt-item" key={i}>
+            <div className={"receipt-item receipt-kind-" + kind} key={i}>
+              <div className="bill-line-effect"><span>{lineKindLabel[kind]}{market && original?.section === "EXPIRY" ? " · Expired" : ""}</span><small>{kind === "fresh_return" ? "+ Returns to stock" : market ? "No sellable stock added" : "Deducts stock"}</small></div>
               {original && (
                 <div className="receipt-item-title">
                   <div>
@@ -378,9 +408,9 @@ export default function BillReview({
                 </div>
               )}
               <div className="line-item">
-                <ProductPicker
+                {!market && !item.createReturnProduct && <ProductPicker
                   label={`Item ${i + 1}`}
-                  showStock
+                  showStock={kind !== "fresh_return"}
                   unit={original?.unit}
                   mrp={original?.mrp ?? item.mrp}
                   disabled={!editable || busy}
@@ -389,12 +419,13 @@ export default function BillReview({
                     setBill({
                       ...bill,
                       items: bill.items.map((v, j) =>
-                        i === j ? { ...v, productId } : v,
+                        i === j ? { ...v, productId, createReturnProduct: false } : v,
                       ),
                     })
                   }
-                />
-                <input
+                />}
+                {item.createReturnProduct && <div className="new-return-item"><strong>{original?.name}</strong><small>New item on acceptance · MRP {original?.mrp?.toFixed(2)}</small></div>}
+                {original ? <strong className="bill-quantity">{item.quantity} {original.unit}</strong> : <input
                   type="number"
                   aria-label={`Quantity ${i + 1}`}
                   min="0.001"
@@ -411,7 +442,7 @@ export default function BillReview({
                       ),
                     })
                   }
-                />
+                />}
                 {(!original || original.mrp === undefined) && (
                   <input
                     aria-label={`MRP ${i + 1}`}
@@ -439,7 +470,7 @@ export default function BillReview({
                     }
                   />
                 )}
-                {editable && (
+                {editable && !original && (
                   <button
                     className="icon-button"
                     disabled={busy}
@@ -455,6 +486,7 @@ export default function BillReview({
                   </button>
                 )}
               </div>
+              {editable && kind === "fresh_return" && !item.productId && <button className="text-button" disabled={busy} onClick={() => setBill({...bill, items: bill.items.map((v,j) => j === i ? {...v, createReturnProduct: !v.createReturnProduct} : v)})}>{item.createReturnProduct ? "Choose existing item" : "Receive as new item"}</button>}
             </div>
           );
         })}
@@ -510,7 +542,7 @@ export default function BillReview({
         </Modal>
       )}
       {issues && !restock && (
-        <Modal title="Stock needed" onClose={() => setIssues(null)}>
+        <Modal title="Review needed" onClose={() => setIssues(null)}>
           <div className="stock-issues">
             {issues.map((issue) => (
               <div key={issue.line}>
@@ -528,7 +560,7 @@ export default function BillReview({
             <button
               className="primary"
               disabled={issues.some(
-                (i) => i.kind === "unit" || i.kind === "price",
+                (i) => !["shortage", "missing"].includes(i.kind) || i.message?.includes("fresh return"),
               )}
               onClick={() => setRestock(true)}
             >

@@ -37,6 +37,7 @@ export type Product = {
   }[];
 };
 export type Item = {
+  createReturnProduct?: boolean;
   productId: string;
   quantity: number;
   sourceLine?: number;

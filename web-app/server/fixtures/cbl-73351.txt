@@ -1,0 +1,96 @@
+...............................................
+
+INVOICE
+EXAMPLE DISTRIBUTOR
+
+No. 1, Example Road
+0112345678
+................................
+  [DUPLICATE] Copy
+
+Bill date : 2026-09-28
+Serial No : 73351
+EXAMPLE AREA
+................................
+OUTLET ID : 123456
+Customer :
+EXAMPLE SHOP
+Example Road
+N/A
+...............................................
+    SKU    UNIT   QTY    RATE      AMOUNT
+***********************************************
+  Net(Rs)             :          10,282.55
+***********************************************
+  
+VAT LIABLE PRODUCTS(inclusive VAT)  : 
+ 1  CHOCO-LA CRISPIES 45G   MRP 100.00
+          PKT     6     90.00      540.00
+ 2  CHOCO-LA MILK 90G MRP 200.00
+          PKT     5     180.00     900.00
+ 3  CHOKYBIX BUTTER SCOTCH 17G SPS  MRP 50.00
+          PKT     12    45.00      540.00
+ 4  BUBBLES 4.5G MRP 10.00
+          PKT     72    9.00       648.00
+ 5  BUBBLES 100G-SPS MRP 250.00
+          PKT     3     225.00     675.00
+ 6  CHOCOLATE FINGERS 110G-A MRP 250.00
+          PKT     1     225.00     225.00
+ 7  CHUNKY CHOC TRIO 60G   MRP 120.00
+          PKT     2     108.00     216.00
+ 8  CHUNKY CHOC 120G-A   MRP 250.00
+          PKT     1     225.00     225.00
+ 9  CHOC-A-NUT 7G   MRP 20.00
+          PKT     12    18.00      216.00
+ 10 PEBBLES ORIGINAL 8G   MRP 20.00
+          PKT     12    18.00      216.00
+ 11 POPIT 9G   MRP 20.00
+          PKT     12    18.00      216.00
+ 12 CHOC-A-NUT 50G   MRP 120.00
+          PKT     6     108.00     648.00
+ 13 RAVE 26G MRP 70.00
+          PKT     12    63.00      756.00
+ 14 BLACK MAGIC 20G MRP 60.00
+          PKT     24    54.00      1,296.00
+ 15 UNO BTL 10G MRP 20.00
+          BTL     48    18.00      864.00
+ 16 SWISS ROLL CHOCOLATE 200G MRP 420.00
+          PKT     2     357.00     714.00
+ 17 SWISS ROLL VANILLA 200G MRP 380.00
+          PKT     1     323.00     323.00
+ 18 SPONGE LAYER CHOCOLATE 310G MRP 600.00
+          PKT     2     510.00     1,020.00
+ 19 4GB NUTRA 10G MRP 20.00
+          PKT     24    18.00      432.00
+                                  ------------
+                                   10,670.00
+
+NET TOTAL B/F RETURN               10,670.00
+...............................................
+  FREE : 
+    CHOC-A-NUT 30G BB   MRP 70.00
+          PKT     1     0.00       0.00
+...............................................
+  CATEGORY                        GRTS
+...............................................
+  CHOCOLATE           :             220.05
+  CANDY BAR           :             145.80
+  CERIAL BARS         :              21.60
+...............................................
+  Gross               :          10,670.00
+  Discount            :             220.05
+  SkuDiscount         :             167.40
+  Returns             :               0.00
+...............................................
+  Net(Rs)             :          10,282.55
+...............................................
+  
+Customer Signature :.....................
+
+                CBL IT POS - 2021
+            printed by : EXAMPLE AREA
+               27-09-2026 18:03
+                    12.428
+              All Rights Reserved
+...............................................
+

@@ -1,4 +1,13 @@
+export const RECEIPT_VERSION = 2;
+export type LineKind = "sale" | "free" | "fresh_return" | "market_return";
+export const lineKind = (bill: any, item: any): LineKind =>
+  bill.receipt?.items[item.sourceLine]?.kind || "sale";
+export const lineKindLabel: Record<LineKind, string> = {
+  sale: "Sale", free: "Free item", fresh_return: "Fresh return", market_return: "Market return",
+};
 export type ReceiptLine = {
+  kind: LineKind;
+  section: string;
   name: string;
   unit: string;
   quantity: number;
@@ -7,6 +16,12 @@ export type ReceiptLine = {
   mrp?: number;
 };
 export type Receipt = {
+  version: number;
+  accounting: {
+    gross: number; discount: number; skuDiscount: number;
+    returnGross: number; returnReversal: number; returns: number;
+    calculatedNet: number; difference: number | null;
+  };
   number: string;
   shop: string;
   date: string;
@@ -116,55 +131,86 @@ export function parseReceipt(
   const lines = preview.split("\n");
   const totals = [
     ...preview.matchAll(
-      /^\s*Net(?:\s*\(Rs\.?\)|\s+Total\s*\(Rs\.?\))\s*:\s*([\d,]+\.\d{2})\s*$/gim,
+      /^\s*Net(?:\s*\(Rs\.?\)|\s+Total\s*\(Rs\.?\))\s*:\s*(-?[\d,]+\.\d{2})\s*$/gim,
     ),
   ];
   const total = totals.length ? money(totals[totals.length - 1][1]) : null;
+  let kind: LineKind = "sale", section = "Sale", inItems = false;
+  let reverseCents = 0;
+  const moneyPattern = "(-?[\\d,]+\\.\\d{2})";
+  const lastSummary = (label: string): number | null => {
+    const matches = [...preview.matchAll(new RegExp(`^\\s*${label}\\s*:\\s*${moneyPattern}\\s*$`, "gim"))];
+    return matches.length ? Math.round(money(matches.at(-1)![1]) * 100) : null;
+  };
+  const detailPattern = /^\s*([A-Z][A-Z0-9./-]*)\s+(-?[\d,]+(?:\.\d+)?)\s+([\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})\s*$/;
+  const knownSection = (label: string): LineKind | null => {
+    if (/^FREE(?:\s+(?:ISSUE|ITEMS?|PRODUCTS?))?$/.test(label)) return "free";
+    if (/^FRESH(?:\s+RETURNS?)?$/.test(label)) return "fresh_return";
+    if (/^(?:EXPIRY|EXPIRED|MARKET(?:\s+RETURNS?)?|DAMAGE[D]?(?:\s+RETURNS?)?)$/.test(label)) return "market_return";
+    return null;
+  };
   for (let i = 0; i < lines.length; i++) {
-    const name = lines[i].match(/^\s*\d+\s{2,}(.+?)\s*$/);
-    if (!name) continue;
-    const detail = lines[i + 1]?.match(
-      /^\s*([A-Z][A-Z0-9./-]*)\s+(-?[\d,]+(?:\.\d+)?)\s+([\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})\s*$/,
-    );
-    if (!detail) {
-      warn("Some item rows need manual review.");
+    const line = lines[i];
+    const heading = line.match(/^\s*([A-Z][A-Z ]+?)\s*:\s*$/);
+    if (/PRODUCTS.*VAT|SKU\s+UNIT\s+QTY/i.test(line)) {
+      inItems = true; kind = "sale"; section = "Sale";
+    }
+    if (heading && knownSection(heading[1].trim())) {
+      kind = knownSection(heading[1].trim())!;
+      section = heading[1].trim();
+      inItems = true;
       continue;
     }
-    const mrp = name[1].match(/\s+MRP\s+([\d,]+\.\d{2})\s*$/i);
-    const quantity = money(detail[2]),
-      rate = money(detail[3]),
-      amount = money(detail[4]);
-    if (quantity <= 0 || amount < 0)
-      warn("Returns or negative quantities need manual stock review.");
-    if (Math.abs(quantity * rate - amount) > 0.011)
+    if (heading && inItems && !/PRODUCTS/.test(heading[1])) {
+      warn(`Unknown item section: ${heading[1].trim()}. Check the original.`);
+      inItems = false;
+    }
+    const reverse = line.match(/^\s*REVERSE GRTS\s+(?:\(([\d,]+\.\d{2})\)|(-?[\d,]+\.\d{2}))\s*$/i);
+    if (reverse) reverseCents += Math.round(Math.abs(money(reverse[1] || reverse[2])) * 100);
+    const numbered = line.match(/^\s*(\d+)\s+(.+?)\s*$/);
+    const detail = lines[i + 1]?.match(detailPattern);
+    // Return and free rows have no serial; numbered sales can have one space after 9.
+    const name = numbered ? numbered[2] : line.trim();
+    if (!detail || !name || !inItems) {
+      if (inItems && ((numbered && /[A-Za-z]/.test(numbered[2])) || /\bMRP\s+[\d,.]+\s*$/.test(line)))
+        warn("Some item rows need manual review.");
+      if (line.match(detailPattern)) warn("An item quantity has no recognized product or section. Check the original.");
+      continue;
+    }
+    const mrp = name.match(/\s+MRP\s+([\d,]+\.\d{2})\s*$/i);
+    const quantity = money(detail[2]), rate = money(detail[3]), amount = money(detail[4]);
+    if (quantity <= 0 || amount < 0) warn("Negative or zero item quantities need manual review.");
+    if (Math.abs(Math.round(quantity * rate * 100) - Math.round(amount * 100)) > 1)
       warn("An item amount differs from quantity × rate.");
+    if (kind === "free" && (rate !== 0 || amount !== 0)) warn("A free item has a nonzero price. Check the original.");
     items.push({
-      name: name[1].replace(/\s+MRP\s+[\d,]+\.\d{2}\s*$/i, "").trim(),
-      unit: detail[1],
-      quantity,
-      rate,
-      amount,
+      kind, section,
+      name: name.replace(/\s+MRP\s+[\d,]+\.\d{2}\s*$/i, "").trim(),
+      unit: detail[1], quantity, rate, amount,
       ...(mrp ? { mrp: money(mrp[1]) } : {}),
     });
     i++;
   }
-  const returns = preview.match(/^\s*Returns\s*:\s*(-?[\d,]+\.\d{2})\s*$/im);
-  if (returns && money(returns[1]) !== 0)
-    warn("Returns need manual stock review.");
-  if (
-    /^.*(?:FREE\s+(?:ISSUE|PRODUCT)|RETURN\s+(?:PRODUCT|ITEM)|REBATE).*$/im.test(
-      preview,
-    )
-  )
-    warn("Free issues, returns, or rebates need manual review.");
+  const sum = (kinds: LineKind[]) => items.filter(i => kinds.includes(i.kind)).reduce((n, i) => n + Math.round(i.amount * 100), 0);
+  const sales = sum(["sale"]), returnGross = sum(["fresh_return", "market_return"]);
+  const gross = lastSummary("Gross") ?? sales, discount = lastSummary("Discount") ?? 0,
+    skuDiscount = lastSummary("SkuDiscount") ?? 0, returnCredit = lastSummary("Returns") ?? returnGross - reverseCents;
+  if (Math.abs(gross - sales) > 1) warn("Sale items do not match the printed gross total.");
+  if (Math.abs(returnGross - reverseCents - returnCredit) > 1 || reverseCents > returnGross)
+    warn("Returns do not match the printed return credit.");
+  if ([gross, discount, skuDiscount, returnCredit].some(n => n < 0)) warn("Negative summary amounts need manual review.");
+  if (discount + skuDiscount > gross) warn("Discounts exceed the sale amount.");
+  const calculated = gross - discount - skuDiscount - returnCredit;
   if (!items.length) warn("No item quantities could be extracted.");
   if (total === null) warn("The invoice total could not be extracted.");
-  else if (
-    Math.abs(items.reduce((sum, item) => sum + item.amount, 0) - total) > 0.011
-  )
-    warn(
-      "Item amounts do not match the net total. Check discounts and returns.",
-    );
+  else if (Math.abs(calculated - Math.round(total * 100)) > 1)
+    warn("The calculated net total does not match the print. Check discounts and returns.");
+  const accounting = {
+    gross: gross / 100, discount: discount / 100, skuDiscount: skuDiscount / 100,
+    returnGross: returnGross / 100, returnReversal: reverseCents / 100,
+    returns: returnCredit / 100, calculatedNet: calculated / 100,
+    difference: total === null ? null : (calculated - Math.round(total * 100)) / 100,
+  };
   const sectionAfter = (pattern: RegExp) => {
     const start = lines.findIndex((line) => pattern.test(line));
     if (start < 0) return [];
@@ -192,6 +238,8 @@ export function parseReceipt(
     ),
   ].map((m) => ({ label: m[1].trim(), amount: money(m[2]) }));
   return {
+    version: RECEIPT_VERSION,
+    accounting,
     number,
     shop,
     date: preview.match(/^\s*Bill date\s*:\s*(\d{4}-\d{2}-\d{2})/m)?.[1] || "",
@@ -213,4 +261,26 @@ export function parseReceipt(
     items,
     warnings,
   };
+}
+
+// Source quantities, prices and dispositions are authoritative for recognized prints.
+export function billReviewErrors(bill: any): string[] {
+  const receipt: Receipt | null = bill.receipt;
+  if (!receipt) return [];
+  const errors = [...receipt.warnings];
+  if (receipt.version !== RECEIPT_VERSION) errors.push("Reload the extracted print before accepting.");
+  if (bill.number !== receipt.number) errors.push("Bill number must match the original print.");
+  const seen = new Set<number>();
+  for (const item of bill.items) {
+    const source = receipt.items[item.sourceLine];
+    if (!source || seen.has(item.sourceLine)) {
+      errors.push("Keep every printed item exactly once. Restore printed items before accepting.");
+      continue;
+    }
+    seen.add(item.sourceLine);
+    if (Math.round(item.quantity * 1000) !== Math.round(source.quantity * 1000))
+      errors.push("Quantities must match the original print. Restore printed items before accepting.");
+  }
+  if (seen.size !== receipt.items.length) errors.push("Some printed items are missing. Restore printed items before accepting.");
+  return [...new Set(errors)];
 }

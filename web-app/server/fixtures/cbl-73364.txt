@@ -1,0 +1,79 @@
+...............................................
+
+INVOICE
+EXAMPLE DISTRIBUTOR
+
+No. 1, Example Road
+0112345678
+................................
+  [DUPLICATE] Copy
+
+Bill date : 2026-09-28
+Serial No : 73364
+EXAMPLE AREA
+................................
+OUTLET ID : 123456
+Customer :
+EXAMPLE SHOP
+Example Road
+N/A
+...............................................
+    SKU    UNIT   QTY    RATE      AMOUNT
+***********************************************
+  Net(Rs)             :           8,532.00
+***********************************************
+  
+VAT LIABLE PRODUCTS(inclusive VAT)  : 
+ 1  RITZBURY CASHEW 45G PP MRP 200.00
+          PKT     6     180.00     1,080.00
+ 2  RITZBURY BUBBLE BAR 35G MRP 100.00
+          PKT     6     90.00      540.00
+ 3  RITZBURY PEANUT BAR 50G MRP 150.00
+          PKT     6     135.00     810.00
+ 4  RITZBURY CASHEW BAR 50G MRP 200.00
+          PKT     6     180.00     1,080.00
+ 5  BUBBLES 4.5G MRP 10.00
+          PKT     72    9.00       648.00
+ 6  BUBBLES 50G-SACMI MRP 150.00
+          PKT     6     135.00     810.00
+ 7  BUBBLES 100G-SPS MRP 250.00
+          PKT     6     225.00     1,350.00
+ 8  CHOC-A-NUT 50G   MRP 120.00
+          PKT     6     108.00     648.00
+ 9  RAVE 26G MRP 70.00
+          PKT     12    63.00      756.00
+ 10 GO CHOK CHOCOLATE 30G MRP 80.00
+          PKT     18    68.00      1,224.00
+                                  ------------
+                                   8,946.00
+
+NET TOTAL B/F RETURN               8,946.00
+...............................................
+  EXPIRY : 
+    CHOCO-MO 40G   MRP 120.00
+          PKT     1     108.00     108.00
+    O-KAY SPONGE LAYER CAKE VANILLA 18G   MRP 40.00
+          PKT     9     34.00      306.00
+                                  ------------
+REVERSE GRTS                       (0.00)
+                                  ------------
+                                   414.00
+  FREE : 
+    CHOC-A-NUT 30G BB   MRP 70.00
+          PKT     1     0.00       0.00
+...............................................
+  Gross               :           8,946.00
+  Returns             :             414.00
+...............................................
+  Net(Rs)             :           8,532.00
+...............................................
+  
+Customer Signature :.....................
+
+                CBL IT POS - 2021
+            printed by : EXAMPLE AREA
+               27-09-2026 18:02
+                    12.428
+              All Rights Reserved
+...............................................
+

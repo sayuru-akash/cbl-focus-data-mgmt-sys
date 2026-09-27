@@ -1,0 +1,133 @@
+...............................................
+
+INVOICE
+EXAMPLE DISTRIBUTOR
+
+No. 1, Example Road
+0112345678
+................................
+  [DUPLICATE] Copy
+
+Bill date : 2026-09-28
+Serial No : 73374
+EXAMPLE AREA
+................................
+OUTLET ID : 123456
+Customer :
+EXAMPLE SHOP
+Example Road
+N/A
+...............................................
+    SKU    UNIT   QTY    RATE      AMOUNT
+***********************************************
+  Net(Rs)             :          39,571.70
+***********************************************
+  
+VAT LIABLE PRODUCTS(inclusive VAT)  : 
+ 1  CHOCO-LA MILK SWEET 20G SACMI MRP 50.00
+          PKT     24    45.00      1,080.00
+ 2  CHOCO-LA CRISPIES 45G   MRP 100.00
+          PKT     12    90.00      1,080.00
+ 3  CHOCO-LA MILK 90G MRP 200.00
+          PKT     12    180.00     2,160.00
+ 4  CHOKYBIX BUTTER SCOTCH 17G SPS  MRP 50.00
+          PKT     24    45.00      1,080.00
+ 5  CHOKYBIX ORANGE 17G SPS  MRP 50.00
+          PKT     24    45.00      1,080.00
+ 6  CHOKYBIX BUTTER SCOTCH 43G SPS MRP 120.00
+          PKT     12    108.00     1,296.00
+ 7  RITZBURY MILK 45G PP MRP 140.00
+          PKT     6     126.00     756.00
+ 8  RITZBURY PEANUT 45G PP MRP 140.00
+          PKT     6     126.00     756.00
+ 9  RITZBURY MILK SWEET 93G   MRP 230.00
+          PKT     3     207.00     621.00
+ 10 RITZBURY MILK 93G PP MRP 270.00
+          PKT     6     243.00     1,458.00
+ 11 RITZBURY CRISPY 93G MRP 270.00
+          PKT     3     243.00     729.00
+ 12 RITZBURY PEANUT 93G PP MRP 270.00
+          PKT     3     243.00     729.00
+ 13 BUBBLES 4.5G MRP 10.00
+          PKT     360   9.00       3,240.00
+ 14 BUBBLES 100G-SPS MRP 250.00
+          PKT     6     225.00     1,350.00
+ 15 REVELLO MILK 50G MRP 350.00
+          PKT     3     315.00     945.00
+ 16 REVELLO CRISPIES 50G MRP 350.00
+          PKT     2     315.00     630.00
+ 17 REVELLO CASHEW 50G MRP 350.00
+          PKT     2     315.00     630.00
+ 18 CHOCOLATE FINGERS 18G   MRP 40.00
+          PKT     12    36.00      432.00
+ 19 CHOCOLATE FINGERS 27G MRP 70.00
+          PKT     12    63.00      756.00
+ 20 CHOCOLATE FINGERS 110G-A-REBATE (PROMO_202607) MRP 250.00
+          PKT     3     225.00     675.00
+ 21 CHUNKY CHOC 20G   MRP 40.00
+          PKT     24    36.00      864.00
+ 22 CHUNKY CHOC 200G-A   MRP 450.00
+          PKT     4     405.00     1,620.00
+ 23 CHOCO-MO 100GX2DZ MRP 250.00
+          PKT     6     225.00     1,350.00
+ 24 CHIT CHAT 12G MRP 40.00
+          PKT     36    36.00      1,296.00
+ 25 CHOC-O-FRUIT 7G   MRP 20.00
+          PKT     24    18.00      432.00
+ 26 PEBBLES PEANUT 7G MRP 20.00
+          PKT     24    18.00      432.00
+ 27 PEBBLES ORIGINAL 8G   MRP 20.00
+          PKT     36    18.00      648.00
+ 28 PEBBLES PARTY PACK 180G MRP 400.00
+          PKT     3     360.00     1,080.00
+ 29 BLACK MAGIC 20G MRP 60.00
+          PKT     72    54.00      3,888.00
+ 30 O-KAY SPONGE LAYER CAKE CHOCOLATE 18G   MRP 40.00
+          PKT     24    34.00      816.00
+ 31 AH-HA 20G MRP 50.00
+          PKT     24    42.50      1,020.00
+ 32 ROLLO 30G MRP 80.00
+          PKT     36    68.00      2,448.00
+ 33 GO CHOK VANILLA 30G MRP 80.00
+          PKT     18    68.00      1,224.00
+ 34 GO CHOK CHOCOLATE 30G MRP 80.00
+          PKT     18    68.00      1,224.00
+ 35 SWISS ROLL VANILLA 200G MRP 380.00
+          PKT     4     323.00     1,292.00
+ 36 SPONGE LAYER CHOCOLATE 310G MRP 600.00
+          PKT     6     510.00     3,060.00
+                                  ------------
+                                   44,177.00
+
+NET TOTAL B/F RETURN               44,177.00
+...............................................
+  FRESH : 
+    BUBBLES 4.5G-OLD MRP 15.00
+          PKT     144   13.50      1,944.00
+                                  ------------
+REVERSE GRTS                       (97.20)
+                                 ------------
+                                   1,846.80
+...............................................
+  CATEGORY                        GRTS
+...............................................
+  CHOCOLATE           :           2,564.10
+  CANDY BAR           :             194.40
+...............................................
+  Gross               :          44,177.00
+  Discount            :           2,531.70
+  SkuDiscount         :             226.80
+  Returns             :           1,846.80
+...............................................
+  Net(Rs)             :          39,571.70
+...............................................
+  
+Customer Signature :.....................
+
+                CBL IT POS - 2021
+            printed by : EXAMPLE AREA
+               27-09-2026 17:58
+                    12.428
+              All Rights Reserved
+...............................................
+

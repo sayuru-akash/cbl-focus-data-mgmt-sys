@@ -1,7 +1,7 @@
 import { mapAsync } from "./db";
 import { openDatabase, type DataConnection } from "./db";
 import { createHash, randomUUID } from "node:crypto";
-import { decodePrint, parseReceipt } from "./receipt";
+import { decodePrint, parseReceipt, RECEIPT_VERSION, billReviewErrors } from "./receipt";
 import { Inventory, cents, productIdentity } from "./inventory";
 export class AppError extends Error {
   constructor(
@@ -44,6 +44,7 @@ export class Store {
  CREATE TABLE IF NOT EXISTS bills(id TEXT PRIMARY KEY,hash TEXT UNIQUE NOT NULL,filename TEXT NOT NULL,mime TEXT NOT NULL,raw BLOB NOT NULL,preview TEXT NOT NULL,source TEXT NOT NULL,received TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',number TEXT NOT NULL DEFAULT '',shop TEXT NOT NULL DEFAULT '',items TEXT NOT NULL DEFAULT '[]',note TEXT NOT NULL DEFAULT '',decided TEXT);
  CREATE UNIQUE INDEX IF NOT EXISTS bill_number ON bills(number) WHERE number <> '' AND status <> 'rejected';
  CREATE TABLE IF NOT EXISTS movements(id TEXT PRIMARY KEY,product_id TEXT NOT NULL REFERENCES products(id),delta INTEGER NOT NULL,reason TEXT NOT NULL,bill_id TEXT REFERENCES bills(id),created TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS bill_parse_history(id TEXT PRIMARY KEY,bill_id TEXT NOT NULL REFERENCES bills(id),receipt TEXT,items TEXT NOT NULL,revision INTEGER NOT NULL,created TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS customers(id TEXT PRIMARY KEY,outlet_id TEXT NOT NULL UNIQUE,name TEXT NOT NULL,address TEXT NOT NULL,phone TEXT NOT NULL,created TEXT NOT NULL,last_seen TEXT NOT NULL);
  `);
     const productColumns = (await this.db
@@ -95,9 +96,21 @@ export class Store {
         id: string;
       }[];
       for (const bill of pending) await this.extractReceipt(bill.id);
+      // Upgrade only untouched drafts. Never rewrite an approved ledger or user edits.
+      const older = await this.db.query("SELECT id,receipt,items,revision FROM bills WHERE status='pending' AND revision=1 AND receipt IS NOT NULL").all();
+      for (const bill of older) {
+        const receipt = JSON.parse(bill.receipt || "null");
+        if (!receipt || receipt.version === RECEIPT_VERSION) continue;
+        await this.db.query("INSERT INTO bill_parse_history VALUES (?,?,?,?,?,?)").run(
+          randomUUID(), bill.id, bill.receipt, bill.items, bill.revision, new Date().toISOString(),
+        );
+        await this.extractReceipt(bill.id, true);
+        await this.db.query("UPDATE bills SET revision=revision+1 WHERE id=?").run(bill.id);
+      }
+
     })();
   }
-  private async extractReceipt(id: string) {
+  private async extractReceipt(id: string, refresh = false) {
     const bill = (await this.db
       .query("SELECT * FROM bills WHERE id=?")
       .get(id)) as any;
@@ -121,10 +134,7 @@ export class Store {
     if (
       receipt &&
       bill.status === "pending" &&
-      !number &&
-      !shop &&
-      items === "[]" &&
-      !bill.note
+      (refresh || (!number && !shop && items === "[]" && !bill.note))
     ) {
       shop = receipt.shop;
       if (
@@ -138,8 +148,7 @@ export class Store {
           "This invoice number already exists. Check for a reprint.",
         );
       else number = receipt.number;
-      if (!receipt.warnings.length)
-        items = JSON.stringify(
+      items = JSON.stringify(
           await mapAsync(receipt.items, async (item, sourceLine) => ({
             productId: await this.inventory.match(item.name, item.unit),
             quantity: item.quantity,
@@ -416,6 +425,30 @@ export class Store {
       });
     return b;
   }
+  async restoreBillPrint(id: string, revision: number) {
+    return this.db.transaction(async () => {
+      const b = await this.bill(id);
+      if (b.status !== "pending") fail("This bill is already closed");
+      if (revision !== b.revision) throw new AppError("This bill changed in another window. Reload it before continuing.", 409);
+      if (!b.receipt) fail("No recognized print to restore");
+      await this.db.query("INSERT INTO bill_parse_history VALUES (?,?,?,?,?,?)").run(
+        randomUUID(), id, JSON.stringify(b.receipt), JSON.stringify(b.items), b.revision, new Date().toISOString(),
+      );
+      await this.extractReceipt(id, true);
+      const refreshed = await this.bill(id);
+      // Retain unambiguous product mappings, matched by printed identity rather than shifted index.
+      for (const item of refreshed.items) {
+        const source = refreshed.receipt.items[item.sourceLine];
+        const matches = b.items.filter((old: any) => {
+          const previous = b.receipt.items[old.sourceLine];
+          return old.productId && previous && previous.name === source.name && previous.unit === source.unit && previous.mrp === source.mrp && (previous.kind || "sale") === source.kind;
+        });
+        if (new Set(matches.map((m: any) => m.productId)).size === 1) item.productId = matches[0].productId;
+      }
+      await this.db.query("UPDATE bills SET items=?,revision=revision+1 WHERE id=?").run(JSON.stringify(refreshed.items), id);
+      return { revision: b.revision + 1 };
+    })();
+  }
   async saveBill(id: string, input: any) {
     const number = string(input.number, 100),
       shop = string(input.shop),
@@ -443,8 +476,10 @@ export class Store {
           : originalBill.receipt.items[sourceLine];
       const mrp = cents(source?.mrp ?? item.mrp),
         sellingPrice = cents(source?.rate ?? item.sellingPrice);
+      if (item.createReturnProduct && (source?.kind !== "fresh_return" || productId)) fail("New return items are only allowed for unmapped fresh returns");
       return {
         productId,
+        ...(item.createReturnProduct ? { createReturnProduct: true } : {}),
         quantity: quantity / 1000,
         mrp: mrp === null ? null : mrp / 100,
         sellingPrice: sellingPrice === null ? null : sellingPrice / 100,
@@ -480,26 +515,9 @@ export class Store {
       if (status === "accepted") {
         if (!b.number || !b.shop || !b.items.length)
           fail("Add bill number, shop, and items first");
-        const totals = new Map<string, number>();
-        for (const item of b.items) {
-          if (!item.productId) fail("Choose a stock item for every line");
-          totals.set(
-            item.productId,
-            (totals.get(item.productId) || 0) + units(item.quantity),
-          );
-        }
-        for (const [pid, qty] of totals) {
-          const p = await this.product(pid);
-          if (!p) fail("A stock item is no longer available");
-          if (p.stock < qty) fail(`Not enough stock: ${p.name}`);
-        }
+        const reviewErrors = billReviewErrors(b);
+        if (reviewErrors.length) fail(reviewErrors[0]);
         await this.inventory.consume(b);
-        for (const [pid, qty] of totals) {
-          await this.db
-            .query("UPDATE products SET stock=stock-? WHERE id=?")
-            .run(qty, pid);
-          await this.movement(pid, -qty, `Bill ${b.number}`, id);
-        }
         await this.approveCustomer(b);
       }
       await this.db

@@ -112,7 +112,7 @@ test("only approved bills create or update customers; outlet ID preserves identi
     failed.items[0].quantity = 10000;
     await store.saveBill(first.id, failed);
     await expect(store.decide(first.id, "accepted")).rejects.toThrow(
-      "Not enough stock",
+      "Quantities must match",
     );
     expect(
       await store.db.query("SELECT count(*) n FROM customers").get(),

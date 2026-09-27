@@ -426,10 +426,15 @@ export async function handleApi(
         );
       }
       const bill = path.match(
-        /^\/api\/bills\/([^/]+)(?:\/(raw|accept|reject|availability))?$/,
+        /^\/api\/bills\/([^/]+)(?:\/(raw|accept|reject|availability|restore))?$/,
       );
       if (bill) {
         const [, id, action] = bill;
+        if (action === "restore" && method === "POST") {
+          const input = await req.json();
+          if (!Number.isInteger(input.revision)) throw new AppError("Reload this bill before continuing.", 409);
+          return json(await store.restoreBillPrint(id, input.revision));
+        }
         if (action === "availability" && method === "GET")
           return json({
             issues: (await store.inventory.plan(await store.bill(id))).issues,
