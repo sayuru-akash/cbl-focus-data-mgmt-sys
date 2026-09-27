@@ -15,6 +15,7 @@ export function ProductDetail({ id }: { id: string }) {
   const data = useQuery({
     queryKey: ["product", id],
     queryFn: () => api<Product>(`/products/${id}`),
+    refetchInterval: 10000,
   });
   const [mode, setMode] = useState<"" | "edit" | "adjust" | "archive">(""),
     [error, setError] = useState(""),
@@ -117,6 +118,16 @@ export function ProductDetail({ id }: { id: string }) {
             <span>Low stock at {item.minimum}</span>
             <Link href="/stock/invoices/new">Receive invoice</Link>
           </div>
+          {!!item.supplierCodes?.length && (
+            <details className="product-code-details">
+              <summary>Supplier codes ({item.supplierCodes.length})</summary>
+              {item.supplierCodes.map(({ tin, code }) => (
+                <p key={`${tin}:${code}`}>
+                  <strong>{code}</strong> · Supplier {tin}
+                </p>
+              ))}
+            </details>
+          )}
           <div className="tabs">
             <Link
               className={!history ? "active" : ""}

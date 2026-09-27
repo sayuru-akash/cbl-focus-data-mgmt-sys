@@ -73,6 +73,7 @@ Use `bun scripts/test-package-receiver.ts` to check the receiver in isolation. D
 - Received batches retain cost and MRP separately. Sales consume the oldest matching-MRP batches, with recorded allocations and no automatic fallback to a different MRP.
 - Accepting a bill checks missing products, units and shortages, and offers stock receiving. Pending bills and failed acceptance never reduce stock.
 - Explicitly accepted product mappings are remembered by printed product name and unit. CBL's sample print contains no SKU codes, so internal SKUs are not presented as CBL SKUs.
+- Customers are created or updated only when a bill is accepted. Outlet ID identifies repeat customers, not spelling alone. Older approved bills cannot overwrite newer customer details; each bill retains its original printed contact details.
 
 ## Stock and print rules
 
@@ -123,7 +124,7 @@ Stock in has one intake path: upload or photograph every page of one supplier in
 - Each page has its own document number. All pages must share the tax invoice number, contain a complete page sequence, and be reviewed.
 - DZ is 12 packets. MC size comes from an explicit description suffix, for example `480GX6EA` means 6 packets per MC. Unclear suffixes require review. Box counts, sold units, packet conversion and printed amounts are cross-checked.
 - MRP is entered from packaging when absent. Printed purchase price, discounted per-packet cost, MRP and selling price are separate. Cost is rounded to cents per packet; the original invoice amounts and exact allocated discounts remain in the intake audit.
-- Supplier TIN plus product code identifies the product. Names alone never merge products. Different codes stay separate, and subsequent receipts create separate batches even when names or prices match.
+- Supplier TIN plus product code remembers the product. Unknown codes create separate products by default. When a supplier changes a code for the same physical item, explicitly choose the existing stock item during review; the internal SKU stays stable. Names or prices alone never merge supplier products. Each receipt keeps its own cost and MRP batch.
 - Every item and page must be checked before posting. Totals must reconcile exactly. Re-uploaded photo sets reopen the existing record; supplier/TIN invoice uniqueness and atomic posting prevent stock from being added twice. Stale review revisions cannot overwrite newer changes.
 - Historical manual stock receipts remain read-only. Use invoice photos for new deliveries. Stock corrections require a reason and retain movement history.
 

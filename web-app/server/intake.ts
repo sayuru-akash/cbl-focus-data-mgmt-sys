@@ -24,6 +24,7 @@ export class Intakes {
       .exec(`CREATE TABLE IF NOT EXISTS intakes(id TEXT PRIMARY KEY,status TEXT NOT NULL DEFAULT 'draft',draft TEXT NOT NULL,created TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1,purchase_id TEXT REFERENCES purchases(id));
       CREATE TABLE IF NOT EXISTS intake_pages(id TEXT PRIMARY KEY,intake_id TEXT NOT NULL REFERENCES intakes(id) ON DELETE CASCADE,position INTEGER NOT NULL,filename TEXT NOT NULL,mime TEXT NOT NULL,hash TEXT NOT NULL,raw BLOB NOT NULL,preview BLOB,ocr TEXT,error TEXT NOT NULL DEFAULT '',UNIQUE(intake_id,hash));
       CREATE TABLE IF NOT EXISTS supplier_products(tin TEXT NOT NULL,code TEXT NOT NULL,product_id TEXT NOT NULL REFERENCES products(id),PRIMARY KEY(tin,code));
+      CREATE INDEX IF NOT EXISTS supplier_product_lookup ON supplier_products(product_id);
       CREATE TABLE IF NOT EXISTS received_supplier_invoices(tin TEXT NOT NULL,number TEXT NOT NULL,intake_id TEXT NOT NULL REFERENCES intakes(id),PRIMARY KEY(tin,number));`);
   }
   list() {
@@ -305,18 +306,8 @@ export class Intakes {
           const p = this.store.product(productId);
           if (!p || p.unit !== "PKT")
             fail(`Select an active packet product for ${l.code}`);
-          const conflicting = this.store.db
-            .query(
-              "SELECT code FROM supplier_products WHERE tin=? AND product_id=? AND code<>?",
-            )
-            .get(d.tin, productId, l.code);
-          if (
-            conflicting ||
-            [...resolved.entries()].some(
-              ([code, pid]) => pid === productId && code !== l.code,
-            )
-          )
-            fail("Different supplier codes must use separate products");
+          // A reviewed, explicit selection can link a replacement supplier code.
+          // Unknown codes are never merged by name or price automatically.
         } else {
           // Codes are supplier-scoped. Never merge products by name or price.
           const sku = `${d.tin}-${l.code}`;

@@ -75,6 +75,9 @@ export class Store {
       this.db.exec(
         "ALTER TABLE bills ADD COLUMN customer_id TEXT REFERENCES customers(id)",
       );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS bills_customer_status ON bills(customer_id,status,received); CREATE INDEX IF NOT EXISTS bills_status_received ON bills(status,received)",
+    );
     this.db.transaction(() => {
       const pending = this.db
         .query("SELECT id FROM bills WHERE receipt IS NULL")
@@ -90,36 +93,14 @@ export class Store {
         : decodePrint(new Uint8Array(bill.raw));
     const receipt = parseReceipt(decoded.preview, decoded.uncertain);
     let customerId = bill.customer_id || null;
-    if (receipt?.outletId) {
-      const existing = this.db
-        .query("SELECT id,last_seen FROM customers WHERE outlet_id=?")
-        .get(receipt.outletId) as any;
-      customerId = existing?.id || randomUUID();
-      if (!existing)
-        this.db
-          .query("INSERT INTO customers VALUES (?,?,?,?,?,?,?)")
-          .run(
-            customerId,
-            receipt.outletId,
-            receipt.shop,
-            receipt.customerAddress,
-            receipt.customerPhone,
-            bill.received,
-            bill.received,
-          );
-      else if (existing.last_seen <= bill.received)
-        this.db
-          .query(
-            "UPDATE customers SET name=?,address=?,phone=?,last_seen=? WHERE id=?",
-          )
-          .run(
-            receipt.shop,
-            receipt.customerAddress,
-            receipt.customerPhone,
-            bill.received,
-            customerId,
-          );
-    }
+    // Captures may be rejected or corrected. Only link an already known outlet here.
+    if (receipt?.outletId)
+      customerId =
+        (
+          this.db
+            .query("SELECT id FROM customers WHERE outlet_id=?")
+            .get(receipt.outletId) as any
+        )?.id || null;
     let number = bill.number,
       shop = bill.shop,
       items = bill.items;
@@ -174,6 +155,53 @@ export class Store {
         value: string;
       } | null
     )?.value;
+  }
+  private approveCustomer(bill: any) {
+    const receipt = bill.receipt;
+    if (!receipt?.outletId) return;
+    const existing = this.db
+      .query("SELECT * FROM customers WHERE outlet_id=?")
+      .get(receipt.outletId) as any;
+    const customerId = existing?.id || randomUUID();
+    if (!existing) {
+      this.db
+        .query("INSERT INTO customers VALUES (?,?,?,?,?,?,?)")
+        .run(
+          customerId,
+          receipt.outletId,
+          bill.shop,
+          receipt.customerAddress || "",
+          receipt.customerPhone || "",
+          bill.received,
+          bill.received,
+        );
+    } else {
+      const latest = this.db
+        .query(
+          "SELECT COALESCE(NULLIF(json_extract(receipt,'$.date'),''),substr(received,1,10)) date,received FROM bills WHERE customer_id=? AND status='accepted' ORDER BY date DESC,received DESC LIMIT 1",
+        )
+        .get(customerId) as any;
+      const billDate = receipt.date || bill.received.slice(0, 10);
+      if (
+        !latest ||
+        billDate > latest.date ||
+        (billDate === latest.date && bill.received >= latest.received)
+      )
+        this.db
+          .query(
+            "UPDATE customers SET name=?,address=?,phone=?,last_seen=? WHERE id=?",
+          )
+          .run(
+            bill.shop,
+            receipt.customerAddress || existing.address,
+            receipt.customerPhone || existing.phone,
+            bill.received,
+            customerId,
+          );
+    }
+    this.db
+      .query("UPDATE bills SET customer_id=? WHERE id=?")
+      .run(customerId, bill.id);
   }
   set(key: string, value: string) {
     this.db
@@ -439,6 +467,7 @@ export class Store {
             .run(qty, pid);
           this.movement(pid, -qty, `Bill ${b.number}`, id);
         }
+        this.approveCustomer(b);
       }
       this.db
         .query(

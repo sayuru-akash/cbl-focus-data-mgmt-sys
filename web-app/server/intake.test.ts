@@ -163,7 +163,7 @@ test("same names with different supplier codes are distinct products; price vari
     store.db.close();
   }
 });
-test("two supplier codes cannot merge into one existing product; failures roll back earlier rows", () => {
+test("a supplier code cannot be reassigned; failures roll back earlier rows", () => {
   const { store, intakes, id, d } = setup();
   try {
     const productId = store.saveProduct({
@@ -171,19 +171,53 @@ test("two supplier codes cannot merge into one existing product; failures roll b
       name: "Cake",
       unit: "PKT",
     });
+    const otherId = store.saveProduct({
+      sku: "OTHER",
+      name: "Different cake",
+      unit: "PKT",
+    });
     d.lines = [
       { ...line("CK001"), productId },
-      { ...line("CK002"), productId },
+      { ...line("CK001"), productId: otherId },
     ];
     d.gross = 25200;
     d.total = 24600;
     intakes.save(id, { revision: 1, draft: d });
-    expect(() => intakes.receive(id, 2)).toThrow("separate products");
+    expect(() => intakes.receive(id, 2)).toThrow("already linked");
     expect(store.products()[0].stock).toBe(0);
     expect(store.inventory.purchases()).toHaveLength(0);
     expect(
       store.db.query("SELECT count(*) n FROM supplier_products").get(),
     ).toEqual({ n: 0 });
+  } finally {
+    store.db.close();
+  }
+});
+test("review can explicitly link changed supplier codes to one item while keeping prices separate", () => {
+  const { store, intakes, id, d } = setup();
+  try {
+    const productId = store.saveProduct({
+      sku: "STABLE",
+      name: "LAYER CAKE 480G",
+      unit: "PKT",
+    });
+    d.lines = [
+      { ...line("OLD-CODE"), productId },
+      { ...line("NEW-CODE", "MC", 650), productId },
+    ];
+    d.gross = 25200;
+    d.total = 24600;
+    intakes.save(id, { revision: 1, draft: d });
+    intakes.receive(id, 2);
+    expect(store.products()).toHaveLength(1);
+    expect(store.products()[0].sku).toBe("STABLE");
+    expect(store.products()[0].stock).toBe(18);
+    expect(store.products()[0].lots.map((l: any) => l.mrp)).toEqual([600, 650]);
+    expect(
+      store.db
+        .query("SELECT count(*) n FROM supplier_products WHERE product_id=?")
+        .get(productId!),
+    ).toEqual({ n: 2 });
   } finally {
     store.db.close();
   }

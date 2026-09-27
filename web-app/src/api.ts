@@ -18,6 +18,7 @@ export async function api<T = any>(
   return data;
 }
 export type Product = {
+  supplierCodes?: { tin: string; code: string }[];
   archived?: number;
   id: string;
   sku: string;

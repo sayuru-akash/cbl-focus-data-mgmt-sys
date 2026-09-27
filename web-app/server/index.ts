@@ -162,11 +162,12 @@ const server = Bun.serve({
             ? cents(Number(url.searchParams.get("mrp")))
             : null;
           const where = words.map(
-            () => "(p.name LIKE ? ESCAPE '\\' OR p.sku LIKE ? ESCAPE '\\')",
+            () =>
+              "(p.name LIKE ? ESCAPE '\\' OR p.sku LIKE ? ESCAPE '\\' OR EXISTS(SELECT 1 FROM supplier_products sp WHERE sp.product_id=p.id AND sp.code LIKE ? ESCAPE '\\'))",
           );
           const args = words.flatMap((word) => {
             const term = "%" + word.replace(/[\\%_]/g, "\\$&") + "%";
-            return [term, term];
+            return [term, term, term];
           });
           return json(
             store.db
@@ -303,6 +304,11 @@ const server = Bun.serve({
               ...p,
               stock: p.stock / 1000,
               minimum: p.minimum / 1000,
+              supplierCodes: store.db
+                .query(
+                  "SELECT tin,code FROM supplier_products WHERE product_id=? ORDER BY tin,code",
+                )
+                .all(id),
               lots: store.inventory.lots(id),
             });
           }

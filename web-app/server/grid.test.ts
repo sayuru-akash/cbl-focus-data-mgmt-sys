@@ -15,10 +15,27 @@ afterEach(() => {
 });
 test("table search escapes SQL wildcards and sorting cannot inject SQL", () => {
   const s = fresh();
-  s.saveProduct({ sku: "AA_01", name: "100% Cake", unit: "PKT", stock: 2 });
+  const product = s.saveProduct({
+    sku: "AA_01",
+    name: "100% Cake",
+    unit: "PKT",
+    stock: 2,
+  });
+  s.db
+    .query("INSERT INTO supplier_products VALUES (?,?,?)")
+    .run("TIN1", "NEW-CODE", product!);
   s.saveProduct({ sku: "AB201", name: "1000 Cake", unit: "PKT", stock: 3 });
   expect(grid(s, "products", new URLSearchParams({ q: "100%" })).total).toBe(1);
   expect(grid(s, "products", new URLSearchParams({ q: "AA_" })).total).toBe(1);
+  expect(
+    grid(s, "products", new URLSearchParams({ q: "NEW-CODE" })).total,
+  ).toBe(1);
+  expect(
+    grid(s, "products", new URLSearchParams({ q: "cake 100%" })).total,
+  ).toBe(1);
+  expect(
+    grid(s, "products", new URLSearchParams({ q: "Cake AA_01" })).total,
+  ).toBe(1);
   expect(() =>
     grid(
       s,
@@ -94,6 +111,34 @@ test("bill status, dates and customer scope remain combined", () => {
       new URLSearchParams({ from: "2026-09-28", to: "2026-09-01" }),
     ),
   ).toThrow();
+});
+test("customer dates and counts use approved bills, excluding later pending prints", () => {
+  const s = fresh();
+  s.db
+    .query("INSERT INTO customers VALUES (?,?,?,?,?,?,?)")
+    .run("C1", "123", "Shop", "Road", "", "2026-09-27", "2026-09-27");
+  const p = s.saveProduct({ sku: "ITEM", name: "Item", stock: 10, unit: "PKT" });
+  for (const [number, date, accepted] of [
+    ["1", "2026-09-19", true],
+    ["2", "2026-09-27", false],
+  ] as const) {
+    const { id } = s.ingest(Buffer.from(number), number, "", "Test");
+    s.saveBill(id, {
+      number,
+      shop: "Shop",
+      items: [{ productId: p, quantity: 1 }],
+    });
+    s.db
+      .query("UPDATE bills SET customer_id=?,receipt=? WHERE id=?")
+      .run("C1", JSON.stringify({ date }), id);
+    if (accepted) s.decide(id, "accepted");
+  }
+  const row = grid(s, "customers", new URLSearchParams()).rows[0] as any;
+  expect(row.last_seen).toBe("2026-09-19");
+  expect(row.bill_count).toBe(1);
+  expect(
+    grid(s, "customers", new URLSearchParams({ from: "2026-09-20" })).total,
+  ).toBe(0);
 });
 test("batch and movement tables cannot cross product scope", () => {
   const s = fresh();

@@ -726,12 +726,20 @@ export default function InvoiceIntake({
                         Stock item
                         <ProductPicker
                           packetsOnly
+                          showStock
+                          mrp={row.mrp}
                           label="Stock item"
                           disabled={busy || locked}
                           value={row.productId}
                           onChange={(productId) => change(step, { productId })}
                           emptyLabel="New product for this code"
                         />
+                        {!locked && row.productId && (
+                          <small>
+                            Same item, including size and flavour. New prices
+                            stay in separate batches.
+                          </small>
+                        )}
                       </label>
                       <details className="intake-edit-details" key={row.id}>
                         <summary>Edit extracted details</summary>

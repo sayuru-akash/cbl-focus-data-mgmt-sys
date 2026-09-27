@@ -213,7 +213,7 @@ export function CustomerList() {
       <header className="page-header">
         <div>
           <h1>Customers</h1>
-          <p>Shops from received bills.</p>
+          <p>Shops from accepted bills.</p>
         </div>
       </header>
       <DataTable
@@ -237,7 +237,7 @@ export function CustomerList() {
           { accessorKey: "outlet_id", header: "Outlet" },
           { accessorKey: "address", header: "Address", enableSorting: false },
           { accessorKey: "phone", header: "Phone", enableSorting: false },
-          { accessorKey: "bill_count", header: "Bills" },
+          { accessorKey: "bill_count", header: "Accepted bills" },
           {
             accessorKey: "last_seen",
             header: "Last bill",

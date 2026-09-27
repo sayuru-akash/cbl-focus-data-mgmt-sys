@@ -26,8 +26,8 @@ export function grid(store: Store, kind: string, params: URLSearchParams) {
   const args: (string | number)[] = [];
   switch (kind) {
     case "products":
-      source = `SELECT p.id,p.name,p.sku,p.unit,p.stock/1000.0 stock,p.minimum/1000.0 minimum,MIN(l.mrp)/100.0 mrp_min,MAX(l.mrp)/100.0 mrp_max FROM products p LEFT JOIN stock_lots l ON l.product_id=p.id AND l.remaining>0 WHERE p.archived=0 GROUP BY p.id`;
-      search = ["name", "sku"];
+      source = `SELECT p.id,p.name,p.sku,p.unit,p.stock/1000.0 stock,p.minimum/1000.0 minimum,(SELECT group_concat(code,' ') FROM supplier_products sp WHERE sp.product_id=p.id) supplier_codes,MIN(l.mrp)/100.0 mrp_min,MAX(l.mrp)/100.0 mrp_max FROM products p LEFT JOIN stock_lots l ON l.product_id=p.id AND l.remaining>0 WHERE p.archived=0 GROUP BY p.id`;
+      search = ["name", "sku", "supplier_codes"];
       sorts = {
         name: "name COLLATE NOCASE",
         sku: "sku",
@@ -113,7 +113,7 @@ export function grid(store: Store, kind: string, params: URLSearchParams) {
       args.push(f.product);
       break;
     case "customers":
-      source = `SELECT c.*,(SELECT COUNT(*) FROM bills b WHERE b.customer_id=c.id) bill_count FROM customers c`;
+      source = `SELECT c.id,c.outlet_id,c.name,c.address,c.phone,c.created,(SELECT MAX(COALESCE(NULLIF(json_extract(b.receipt,'$.date'),''),substr(b.received,1,10))) FROM bills b WHERE b.customer_id=c.id AND b.status='accepted') last_seen,(SELECT COUNT(*) FROM bills b WHERE b.customer_id=c.id AND b.status='accepted') bill_count FROM customers c WHERE EXISTS(SELECT 1 FROM bills b WHERE b.customer_id=c.id AND b.status='accepted')`;
       search = ["name", "outlet_id", "address", "phone"];
       sorts = {
         name: "name COLLATE NOCASE",
@@ -127,11 +127,13 @@ export function grid(store: Store, kind: string, params: URLSearchParams) {
       throw new AppError("Table not found", 404);
   }
   if (f.q) {
-    clauses.push(
-      "(" + search.map((c) => `${c} LIKE ? ESCAPE '\\'`).join(" OR ") + ")",
-    );
-    const escaped = "%" + f.q.replace(/[\\%_]/g, "\\$&") + "%";
-    search.forEach(() => args.push(escaped));
+    for (const word of f.q.split(/\s+/).slice(0, 12)) {
+      clauses.push(
+        "(" + search.map((c) => `${c} LIKE ? ESCAPE '\\'`).join(" OR ") + ")",
+      );
+      const escaped = "%" + word.replace(/[\\%_]/g, "\\$&") + "%";
+      search.forEach(() => args.push(escaped));
+    }
   }
   if (date && f.from) {
     clauses.push(`${date}>=?`);

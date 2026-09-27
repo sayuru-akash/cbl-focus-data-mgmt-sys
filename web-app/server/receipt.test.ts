@@ -70,10 +70,17 @@ test("pending prints can match newly received products without silently saving t
     store.db.close();
   }
 });
-test("customer is linked by outlet ID while historical bill snapshots stay intact", () => {
+test("only approved bills create or update customers; outlet ID preserves identity and history", () => {
   const store = new Store(":memory:");
   try {
     const first = store.ingest(Buffer.from(receiptText), "first", "", "Test");
+    for (const source of store.bill(first.id).receipt.items)
+      store.saveProduct({
+        name: source.name,
+        unit: source.unit,
+        stock: 200,
+        mrp: source.mrp,
+      });
     const second = store.ingest(
       Buffer.from(
         receiptText
@@ -85,6 +92,35 @@ test("customer is linked by outlet ID while historical bill snapshots stay intac
       "",
       "Test",
     );
+    expect(store.db.query("SELECT count(*) n FROM customers").get()).toEqual({
+      n: 0,
+    });
+    const failed = store.reviewBill(first.id);
+    failed.items[0].quantity = 10000;
+    store.saveBill(first.id, failed);
+    expect(() => store.decide(first.id, "accepted")).toThrow(
+      "Not enough stock",
+    );
+    expect(store.db.query("SELECT count(*) n FROM customers").get()).toEqual({
+      n: 0,
+    });
+    store.saveBill(first.id, {
+      ...store.bill(first.id),
+      items: failed.items.map((item: any, index: number) => ({
+        ...item,
+        quantity: failed.receipt.items[index].quantity,
+      })),
+    });
+    const approve = (id: string) => {
+      const b = store.reviewBill(id);
+      store.saveBill(id, b);
+      store.decide(id, "accepted");
+    };
+    approve(first.id);
+    expect(
+      (store.db.query("SELECT name FROM customers").get() as any).name,
+    ).toBe("Example Shop");
+    approve(second.id);
     expect(store.bill(first.id).customer_id).toBe(
       store.bill(second.id).customer_id,
     );
@@ -96,6 +132,37 @@ test("customer is linked by outlet ID while historical bill snapshots stay intac
       "No. 2, Shop Road",
     );
     expect(store.bill(second.id).receipt.customerAddress).toBe("New Address");
+    expect(
+      (store.db.query("SELECT name FROM customers").get() as any).name,
+    ).toBe("Renamed Shop");
+    const older = store.ingest(
+      Buffer.from(
+        receiptText
+          .replace("10001", "10003")
+          .replace("2026-09-22", "2026-09-20"),
+      ),
+      "older",
+      "",
+      "Test",
+    );
+    approve(older.id);
+    expect(
+      (store.db.query("SELECT name FROM customers").get() as any).name,
+    ).toBe("Renamed Shop");
+    const rejected = store.ingest(
+      Buffer.from(
+        receiptText
+          .replace("10001", "10004")
+          .replace("OUTLET ID : 123", "OUTLET ID : 999"),
+      ),
+      "rejected",
+      "",
+      "Test",
+    );
+    store.decide(rejected.id, "rejected");
+    expect(store.db.query("SELECT count(*) n FROM customers").get()).toEqual({
+      n: 1,
+    });
   } finally {
     store.db.close();
   }
@@ -149,7 +216,7 @@ test("successive prints are independent, retries deduplicate, and reprints canno
       n: 0,
     });
     expect(store.db.query("SELECT count(*) n FROM customers").get()).toEqual({
-      n: 1,
+      n: 0,
     });
   } finally {
     store.db.close();
