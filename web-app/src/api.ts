@@ -70,6 +70,7 @@ export type Bill = {
   source: string;
   received: string;
   status: "pending" | "accepted" | "rejected";
+  decided?: string | null;
   number: string;
   shop: string;
   items: Item[];

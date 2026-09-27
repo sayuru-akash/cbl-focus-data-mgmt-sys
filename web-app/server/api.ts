@@ -400,6 +400,12 @@ export async function handleApi(
             lots: await store.inventory.lots(id),
           });
         }
+        if (!action && method === "DELETE") {
+          const input = await req.json();
+          return json(
+            await store.deleteBill(id, input.revision, input.confirmation),
+          );
+        }
         if (!action && method === "PUT") {
           await store.saveProduct(await req.json(), id);
           return json({ ok: true });
@@ -455,6 +461,12 @@ export async function handleApi(
         if (!action && method === "GET") {
           const { raw, hash, ...b } = await store.reviewBill(id);
           return json(b);
+        }
+        if (!action && method === "DELETE") {
+          const input = await req.json();
+          return json(
+            await store.deleteBill(id, input.revision, input.confirmation),
+          );
         }
         if (!action && method === "PUT") {
           const input = await req.json();

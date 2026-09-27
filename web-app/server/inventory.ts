@@ -587,6 +587,86 @@ export class Inventory {
           .run(normalize(source.name), normalize(source.unit), item.productId);
     }
   }
+  async reverseBill(bill: any) {
+    const allocations = await this.store.db
+      .query(
+        "SELECT a.*,l.product_id FROM allocations a JOIN stock_lots l ON l.id=a.lot_id WHERE a.bill_id=?",
+      )
+      .all(bill.id);
+    const returns = await this.store.db
+      .query(
+        "SELECT * FROM bill_returns WHERE bill_id=? AND kind='fresh_return'",
+      )
+      .all(bill.id);
+    for (let line = 0; line < bill.items.length; line++) {
+      const item = bill.items[line],
+        kind = lineKind(bill, item);
+      if (
+        ["sale", "free"].includes(kind) &&
+        allocations
+          .filter((a) => a.line === line)
+          .reduce((n, a) => n + a.quantity, 0) !== units(item.quantity)
+      )
+        fail(
+          "This bill has incomplete stock history and cannot be safely deleted.",
+        );
+      if (
+        kind === "fresh_return" &&
+        returns
+          .filter((r) => r.line === line)
+          .reduce((n, r) => n + r.quantity, 0) !== units(item.quantity)
+      )
+        fail(
+          "This return has incomplete stock history and cannot be safely deleted.",
+        );
+    }
+    // Refuse to erase a return lot used elsewhere, including manual stock reductions.
+    for (const returned of returns) {
+      const lot = await this.store.db
+        .query("SELECT * FROM stock_lots WHERE id=?")
+        .get(returned.lot_id);
+      const ownUsed = allocations
+        .filter((a) => a.lot_id === returned.lot_id)
+        .reduce((n, a) => n + a.quantity, 0);
+      const other = await this.store.db
+        .query(
+          "SELECT bill_id FROM allocations WHERE lot_id=? AND bill_id<>? LIMIT 1",
+        )
+        .get(returned.lot_id, bill.id);
+      if (!lot || other || lot.remaining + ownUsed !== returned.quantity)
+        fail(
+          `Cannot delete: fresh-return stock for ${returned.name} has been used or adjusted. Reverse the dependent bill or adjustment first.`,
+        );
+    }
+    for (const a of allocations) {
+      const restored = await this.store.db
+        .query(
+          "UPDATE stock_lots SET remaining=remaining+? WHERE id=? AND remaining+?<=received_qty",
+        )
+        .run(a.quantity, a.lot_id, a.quantity);
+      if (restored.changes !== 1)
+        fail("Stock history changed. This bill cannot be safely deleted.");
+      await this.store.db
+        .query("UPDATE products SET stock=stock+? WHERE id=?")
+        .run(a.quantity, a.product_id);
+    }
+    await this.store.db
+      .query("DELETE FROM allocations WHERE bill_id=?")
+      .run(bill.id);
+    await this.store.db
+      .query("DELETE FROM bill_returns WHERE bill_id=?")
+      .run(bill.id);
+    for (const returned of returns) {
+      const removed = await this.store.db
+        .query("UPDATE products SET stock=stock-? WHERE id=? AND stock>=?")
+        .run(returned.quantity, returned.product_id, returned.quantity);
+      if (removed.changes !== 1)
+        fail("Not enough stock to reverse this fresh return");
+      await this.store.db
+        .query("DELETE FROM stock_lots WHERE id=?")
+        .run(returned.lot_id);
+    }
+  }
   async adjustLots(productId: string, delta: number, input: any) {
     if (delta > 0) {
       await this.addLot(

@@ -115,11 +115,18 @@ describe("Stock ledger", () => {
     expect(new Uint8Array((await s.bill(b.id)).raw)).toEqual(bytes);
   });
   test("fractional stock, adjustments and bill quantities are rejected without ledger changes", async () => {
-    const s = await fresh(), p = await item(s, "A", 3);
+    const s = await fresh(),
+      p = await item(s, "A", 3);
     await expect(item(s, "B", 0.3)).rejects.toThrow("whole-number");
-    await expect(s.adjust(p, { quantity: 0.5, reason: "Count" })).rejects.toThrow("whole-number");
-    await expect(s.adjust(p, { quantity: -0.5, reason: "Count" })).rejects.toThrow("whole-number");
-    await expect(bill(s, [{ productId: p, quantity: 0.1 }])).rejects.toThrow("whole-number");
+    await expect(
+      s.adjust(p, { quantity: 0.5, reason: "Count" }),
+    ).rejects.toThrow("whole-number");
+    await expect(
+      s.adjust(p, { quantity: -0.5, reason: "Count" }),
+    ).rejects.toThrow("whole-number");
+    await expect(bill(s, [{ productId: p, quantity: 0.1 }])).rejects.toThrow(
+      "whole-number",
+    );
     expect((await s.products())[0].stock).toBe(3);
   });
   test("duplicate invoice numbers are rejected", async () => {

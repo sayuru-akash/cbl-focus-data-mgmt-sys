@@ -339,7 +339,11 @@ export function billReviewErrors(bill: any): string[] {
   const errors = receipt.reviewed ? [] : [...receipt.warnings];
   if (receipt.accounting?.difference)
     errors.push("Correct the amounts so the bill total reconciles.");
-  if (receipt.items.some((item) => !Number.isInteger(item.quantity) || item.quantity <= 0))
+  if (
+    receipt.items.some(
+      (item) => !Number.isInteger(item.quantity) || item.quantity <= 0,
+    )
+  )
     errors.push("Quantities must be positive whole numbers.");
   if (receipt.version !== RECEIPT_VERSION)
     errors.push("Reload the extracted print before accepting.");

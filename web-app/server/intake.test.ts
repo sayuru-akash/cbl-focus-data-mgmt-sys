@@ -389,6 +389,10 @@ test("concurrent photo retries create one draft and concurrent review saves reje
 });
 
 test("invoice review rejects fractional box and sold quantities", () => {
-  expect(lineIssues({ ...line(), boxes: 1.5 })).toContain("Box count must be a whole number");
-  expect(lineIssues({ ...line(), sold: 1.5, unit: "DZ", packSize: 12 })).toContain("Sold quantity must be a whole number");
+  expect(lineIssues({ ...line(), boxes: 1.5 })).toContain(
+    "Box count must be a whole number",
+  );
+  expect(
+    lineIssues({ ...line(), sold: 1.5, unit: "DZ", packSize: 12 }),
+  ).toContain("Sold quantity must be a whole number");
 });

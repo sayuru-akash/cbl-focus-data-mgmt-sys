@@ -55,6 +55,8 @@ export default function BillReview({
   const [leaveAction, setLeaveAction] = useState<(() => void) | null>(null);
   const [remote, setRemote] = useState<Bill | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [deleteStep, setDeleteStep] = useState(0);
+  const [deleteText, setDeleteText] = useState("");
 
   const [bill, setBill] = useState<Bill | null>(null),
     [error, setError] = useState(""),
@@ -303,6 +305,32 @@ export default function BillReview({
       </div>
     );
   const editable = bill.status === "pending";
+  const canDelete =
+    bill.status !== "accepted" ||
+    (bill.decided && Date.now() <= Date.parse(bill.decided) + 10 * 86400000);
+  async function removeBill() {
+    if (!bill || deleteText !== (bill.number || "DELETE")) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/bills/${id}`, {
+        method: "DELETE",
+        body: JSON.stringify({
+          revision: bill.revision,
+          confirmation: "DELETE",
+        }),
+      });
+      unsavedBills.delete(id);
+      baseline.current = editableValue(bill);
+      setDeleteStep(0);
+      onUpdate();
+      onClose();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
   const reviewErrors = editable
     ? billReviewErrors(bill)
     : bill.receipt?.warnings || [];
@@ -354,6 +382,23 @@ export default function BillReview({
           </small>
         </div>
         <span className={"status " + bill.status}>{bill.status}</span>
+        <button
+          className="icon-button danger-text"
+          aria-label="Delete bill"
+          title={
+            canDelete
+              ? "Delete bill"
+              : "Deletion closed: more than 10 days since approval"
+          }
+          disabled={busy || !canDelete}
+          onClick={() => {
+            setError("");
+            setDeleteText("");
+            setDeleteStep(1);
+          }}
+        >
+          <Trash2 size={18} />
+        </button>
       </header>
       {editable && (
         <div className="review-actions">
@@ -374,7 +419,10 @@ export default function BillReview({
                 busy ||
                 reviewErrors.length > 0 ||
                 !bill.items.length ||
-                bill.items.some((item) => item.quantity <= 0 || !Number.isInteger(item.quantity)) ||
+                bill.items.some(
+                  (item) =>
+                    item.quantity <= 0 || !Number.isInteger(item.quantity),
+                ) ||
                 !bill.number.trim() ||
                 !bill.shop.trim()
               }
@@ -863,6 +911,65 @@ export default function BillReview({
           </p>
         )}
       </div>
+      {deleteStep > 0 && (
+        <Modal
+          title={deleteStep === 1 ? "Delete bill?" : "Confirm deletion"}
+          onClose={() => {
+            if (!busy) setDeleteStep(0);
+          }}
+        >
+          <p>
+            <strong>Bill #{bill.number || "Untitled"}</strong> · {bill.shop}
+          </p>
+          {deleteStep === 1 ? (
+            <>
+              <p>
+                {bill.status === "accepted"
+                  ? "Sales and free items return to their original stock batches. Fresh returns are removed. Market returns do not change stock."
+                  : "This bill and its original print will be removed. Stock will not change."}
+              </p>
+              <div className="actions">
+                <button onClick={() => setDeleteStep(0)}>Cancel</button>
+                <button
+                  className="danger-text"
+                  onClick={() => setDeleteStep(2)}
+                >
+                  Continue
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p>
+                This cannot be undone. Type{" "}
+                <strong>{bill.number || "DELETE"}</strong> to confirm.
+              </p>
+              <label>
+                Bill number
+                <input
+                  autoFocus
+                  value={deleteText}
+                  disabled={busy}
+                  onChange={(e) => setDeleteText(e.target.value)}
+                />
+              </label>
+              <ErrorText message={error} />
+              <div className="actions">
+                <button disabled={busy} onClick={() => setDeleteStep(0)}>
+                  Cancel
+                </button>
+                <button
+                  className="danger-text"
+                  disabled={busy || deleteText !== (bill.number || "DELETE")}
+                  onClick={() => void removeBill()}
+                >
+                  {busy ? "Deleting…" : "Delete permanently"}
+                </button>
+              </div>
+            </>
+          )}
+        </Modal>
+      )}
       {leaveAction && (
         <Modal title="Unsaved bill" onClose={() => setLeaveAction(null)}>
           <p>Save your changes before switching?</p>
@@ -901,8 +1008,8 @@ export default function BillReview({
       {issues && !restock && (
         <Modal title="Review needed" onClose={() => setIssues(null)}>
           <div className="stock-issues">
-            {issues.map((issue) => (
-              <div key={issue.line}>
+            {issues.map((issue, index) => (
+              <div key={issue.line ?? `review-${index}`}>
                 <strong>{issue.name}</strong>
                 <p>
                   {issue.message ||

@@ -150,6 +150,48 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
         })
       ).status,
     ).toBe(403);
+    const deleteBody = JSON.stringify({
+      revision: captured.revision,
+      confirmation: "DELETE",
+    });
+    expect(
+      (
+        await fetch(base + `/api/bills/${first.id}`, {
+          method: "DELETE",
+          body: deleteBody,
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await fetch(base + `/api/bills/${first.id}`, {
+          method: "DELETE",
+          headers: { ...headers, Origin: "http://evil.invalid" },
+          body: deleteBody,
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await fetch(base + `/api/bills/${first.id}`, {
+          method: "DELETE",
+          headers,
+          body: JSON.stringify({ revision: captured.revision }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await fetch(base + `/api/bills/${first.id}`, {
+          method: "DELETE",
+          headers,
+          body: deleteBody,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await fetch(base + `/api/bills/${first.id}`, { headers })).status,
+    ).toBe(404);
     expect(
       (await fetch(base + "/api/logout", { method: "POST", headers })).status,
     ).toBe(200);

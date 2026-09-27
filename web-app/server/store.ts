@@ -47,6 +47,7 @@ export class Store {
  CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,expires INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS products(id TEXT PRIMARY KEY,sku TEXT UNIQUE NOT NULL,name TEXT NOT NULL,unit TEXT NOT NULL,stock INTEGER NOT NULL CHECK(stock>=0),minimum INTEGER NOT NULL DEFAULT 0,archived INTEGER NOT NULL DEFAULT 0);
+ CREATE TABLE IF NOT EXISTS deleted_bills(id TEXT PRIMARY KEY,hash TEXT UNIQUE NOT NULL,deleted TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS bills(id TEXT PRIMARY KEY,hash TEXT UNIQUE NOT NULL,filename TEXT NOT NULL,mime TEXT NOT NULL,raw BLOB NOT NULL,preview TEXT NOT NULL,source TEXT NOT NULL,received TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',number TEXT NOT NULL DEFAULT '',shop TEXT NOT NULL DEFAULT '',items TEXT NOT NULL DEFAULT '[]',note TEXT NOT NULL DEFAULT '',decided TEXT);
  CREATE UNIQUE INDEX IF NOT EXISTS bill_number ON bills(number) WHERE number <> '' AND status <> 'rejected';
  CREATE TABLE IF NOT EXISTS movements(id TEXT PRIMARY KEY,product_id TEXT NOT NULL REFERENCES products(id),delta INTEGER NOT NULL,reason TEXT NOT NULL,bill_id TEXT REFERENCES bills(id),created TEXT NOT NULL);
@@ -403,6 +404,10 @@ export class Store {
       .query("SELECT id FROM bills WHERE hash=?")
       .get(hash)) as any;
     if (old) return { id: old.id, duplicate: true };
+    const deleted = await this.db
+      .query("SELECT id FROM deleted_bills WHERE hash=?")
+      .get(hash);
+    if (deleted) return { id: deleted.id, duplicate: true, deleted: true };
     const id = randomUUID();
     const isPdf = Buffer.from(raw.subarray(0, 5)).toString() === "%PDF-";
     const preview = isPdf
@@ -607,6 +612,39 @@ export class Store {
         );
     })();
     return { revision: (await this.bill(id)).revision };
+  }
+  async deleteBill(id: string, revision: number, confirmation: string) {
+    if (confirmation !== "DELETE") fail("Confirm deletion first");
+    return this.db.transaction(async () => {
+      if (
+        await this.db.query("SELECT id FROM deleted_bills WHERE id=?").get(id)
+      )
+        return { unchanged: true };
+      const bill = await this.bill(id);
+      if (!Number.isInteger(revision) || revision !== bill.revision)
+        throw new AppError(
+          "This bill changed. Reload it before deleting.",
+          409,
+        );
+      if (bill.status === "accepted") {
+        const approved = Date.parse(bill.decided || "");
+        if (!Number.isFinite(approved) || Date.now() > approved + 10 * 86400000)
+          fail("Accepted bills can only be deleted within 10 days of approval");
+        await this.inventory.reverseBill(bill);
+      }
+      await this.db.query("DELETE FROM allocations WHERE bill_id=?").run(id);
+      await this.db.query("DELETE FROM bill_returns WHERE bill_id=?").run(id);
+      await this.db.query("DELETE FROM movements WHERE bill_id=?").run(id);
+      await this.db
+        .query("DELETE FROM bill_parse_history WHERE bill_id=?")
+        .run(id);
+      // Keep only a fingerprint so delayed connector retries cannot recreate a deleted bill.
+      await this.db
+        .query("INSERT INTO deleted_bills VALUES (?,?,?)")
+        .run(id, bill.hash, new Date().toISOString());
+      await this.db.query("DELETE FROM bills WHERE id=?").run(id);
+      return { unchanged: false };
+    })();
   }
   async decide(id: string, status: "accepted" | "rejected", revision?: number) {
     return await this.db.transaction(async () => {
