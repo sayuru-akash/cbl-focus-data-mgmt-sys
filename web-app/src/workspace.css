@@ -1077,3 +1077,8 @@ button.primary:hover {
     width: 110px;
   }
 }
+
+.delete-description {
+  margin: 12px 0 16px;
+  line-height: 1.5;
+}

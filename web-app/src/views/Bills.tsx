@@ -923,12 +923,12 @@ export default function BillReview({
           </p>
           {deleteStep === 1 ? (
             <>
-              <p>
+              <p className="delete-description">
                 {bill.status === "accepted"
                   ? "Sales and free items return to their original stock batches. Fresh returns are removed. Market returns do not change stock."
                   : "This bill and its original print will be removed. Stock will not change."}
               </p>
-              <div className="actions">
+              <div className="modal-actions">
                 <button onClick={() => setDeleteStep(0)}>Cancel</button>
                 <button
                   className="danger-text"
@@ -940,7 +940,7 @@ export default function BillReview({
             </>
           ) : (
             <>
-              <p>
+              <p className="delete-description">
                 This cannot be undone. Type{" "}
                 <strong>{bill.number || "DELETE"}</strong> to confirm.
               </p>
@@ -954,7 +954,7 @@ export default function BillReview({
                 />
               </label>
               <ErrorText message={error} />
-              <div className="actions">
+              <div className="modal-actions">
                 <button disabled={busy} onClick={() => setDeleteStep(0)}>
                   Cancel
                 </button>
@@ -973,7 +973,7 @@ export default function BillReview({
       {leaveAction && (
         <Modal title="Unsaved bill" onClose={() => setLeaveAction(null)}>
           <p>Save your changes before switching?</p>
-          <div className="actions">
+          <div className="modal-actions">
             <button disabled={busy} onClick={() => setLeaveAction(null)}>
               Keep editing
             </button>
