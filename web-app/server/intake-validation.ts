@@ -7,8 +7,10 @@ export function lineIssues(line: IntakeLine): string[] {
   if (!/^[A-Z0-9][A-Z0-9._/-]{1,79}$/i.test(line.code))
     issues.push("Check product code");
   if (!line.description.trim()) issues.push("Enter the product description");
-  if (!finite(line.boxes) || !line.boxes) issues.push("Check box count");
-  if (!finite(line.sold) || !line.sold) issues.push("Check sold quantity");
+  if (!finite(line.boxes) || !line.boxes || !Number.isInteger(line.boxes))
+    issues.push("Box count must be a whole number");
+  if (!finite(line.sold) || !line.sold || !Number.isInteger(line.sold))
+    issues.push("Sold quantity must be a whole number");
   if (!["DZ", "MC", "PKT", "EA", "PCS"].includes(line.unit))
     issues.push("Check invoice unit");
   if (

@@ -374,7 +374,7 @@ export default function BillReview({
                 busy ||
                 reviewErrors.length > 0 ||
                 !bill.items.length ||
-                bill.items.some((item) => item.quantity <= 0) ||
+                bill.items.some((item) => item.quantity <= 0 || !Number.isInteger(item.quantity)) ||
                 !bill.number.trim() ||
                 !bill.shop.trim()
               }
@@ -753,8 +753,8 @@ export default function BillReview({
                   <input
                     type="number"
                     aria-label={`Quantity ${i + 1}`}
-                    min="0.001"
-                    step="0.001"
+                    min="1"
+                    step="1"
                     disabled={!editable || busy}
                     value={item.quantity}
                     onChange={(e) =>

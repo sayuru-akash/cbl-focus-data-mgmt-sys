@@ -305,35 +305,90 @@ test("photo selection validation rejects duplicates and oversize uploads without
   }
 });
 
-test('approval clears photos after committing stock and retries a failed R2 deletion', async () => {
-  const {store,id}=await setup();
-  let failures=1; const removed:string[]=[];
-  const photos={delete:async(keys:string[])=>{if(failures-->0)throw new Error('Offline');removed.push(...keys);}};
-  const intakes=await Intakes.open(store,photos as any);
+test("approval clears photos after committing stock and retries a failed R2 deletion", async () => {
+  const { store, id } = await setup();
+  let failures = 1;
+  const removed: string[] = [];
+  const photos = {
+    delete: async (keys: string[]) => {
+      if (failures-- > 0) throw new Error("Offline");
+      removed.push(...keys);
+    },
+  };
+  const intakes = await Intakes.open(store, photos as any);
   try {
-    await store.db.query('UPDATE intake_pages SET object_key=?,preview_key=?,preview=?,ocr=? WHERE intake_id=?').run('drafts/test/original','drafts/test/preview',new Uint8Array([2]),'[]',id);
-    const before=await intakes.get(id);
-    const [first,second]=await Promise.all([intakes.receive(id,before.revision),intakes.receive(id,before.revision)]);
-    expect(first.status).toBe('received');expect(second.status).toBe('received');
+    await store.db
+      .query(
+        "UPDATE intake_pages SET object_key=?,preview_key=?,preview=?,ocr=? WHERE intake_id=?",
+      )
+      .run(
+        "drafts/test/original",
+        "drafts/test/preview",
+        new Uint8Array([2]),
+        "[]",
+        id,
+      );
+    const before = await intakes.get(id);
+    const [first, second] = await Promise.all([
+      intakes.receive(id, before.revision),
+      intakes.receive(id, before.revision),
+    ]);
+    expect(first.status).toBe("received");
+    expect(second.status).toBe("received");
     expect((await store.products())[0].stock).toBe(9);
-    const page=await store.db.query('SELECT raw,preview,ocr,object_key FROM intake_pages WHERE intake_id=?').get(id);
-    expect(page.raw.length).toBe(0);expect(page.preview).toBeNull();expect(page.ocr).toBeNull();expect(page.object_key).toBeNull();
-    await expect(intakes.page(id,before.pages[0].id)).rejects.toThrow('removed after approval');
+    const page = await store.db
+      .query(
+        "SELECT raw,preview,ocr,object_key FROM intake_pages WHERE intake_id=?",
+      )
+      .get(id);
+    expect(page.raw.length).toBe(0);
+    expect(page.preview).toBeNull();
+    expect(page.ocr).toBeNull();
+    expect(page.object_key).toBeNull();
+    await expect(intakes.page(id, before.pages[0].id)).rejects.toThrow(
+      "removed after approval",
+    );
     await intakes.cleanupPhotos();
     expect(new Set(removed).size).toBe(2);
-    expect((await store.db.query('SELECT count(*) n FROM photo_gc').get()).n).toBe(0);
-  } finally {await store.db.close();}
+    expect(
+      (await store.db.query("SELECT count(*) n FROM photo_gc").get()).n,
+    ).toBe(0);
+  } finally {
+    await store.db.close();
+  }
 });
 
-test('concurrent photo retries create one draft and concurrent review saves reject stale edits',async()=>{
-  const store=await openTestStore();const intakes=await Intakes.open(store);
+test("concurrent photo retries create one draft and concurrent review saves reject stale edits", async () => {
+  const store = await openTestStore();
+  const intakes = await Intakes.open(store);
   try {
-    const file=new File([new Uint8Array([1,2,3])],'sample.png',{type:'image/png'});
-    const [a,b]=await Promise.all([intakes.create([file]),intakes.create([file])]);
+    const file = new File([new Uint8Array([1, 2, 3])], "sample.png", {
+      type: "image/png",
+    });
+    const [a, b] = await Promise.all([
+      intakes.create([file]),
+      intakes.create([file]),
+    ]);
     expect(a.id).toBe(b.id);
-    const draft={...a.draft,pages:[{page:1,count:1,document:'D',invoice:'I',reviewed:false}],lines:[]};
-    const result=await Promise.allSettled([intakes.save(a.id,{draft,revision:a.revision}),intakes.save(a.id,{draft,revision:a.revision})]);
-    expect(result.filter(r=>r.status==='fulfilled')).toHaveLength(1);
-    expect(result.filter(r=>r.status==='rejected')).toHaveLength(1);
-  } finally {await store.db.close();}
+    const draft = {
+      ...a.draft,
+      pages: [
+        { page: 1, count: 1, document: "D", invoice: "I", reviewed: false },
+      ],
+      lines: [],
+    };
+    const result = await Promise.allSettled([
+      intakes.save(a.id, { draft, revision: a.revision }),
+      intakes.save(a.id, { draft, revision: a.revision }),
+    ]);
+    expect(result.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(result.filter((r) => r.status === "rejected")).toHaveLength(1);
+  } finally {
+    await store.db.close();
+  }
+});
+
+test("invoice review rejects fractional box and sold quantities", () => {
+  expect(lineIssues({ ...line(), boxes: 1.5 })).toContain("Box count must be a whole number");
+  expect(lineIssues({ ...line(), sold: 1.5, unit: "DZ", packSize: 12 })).toContain("Sold quantity must be a whole number");
 });

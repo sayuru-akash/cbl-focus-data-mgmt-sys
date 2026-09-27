@@ -29,9 +29,9 @@ export const units = (v: unknown) =>
   Number.isFinite(v) &&
   v >= 0 &&
   v <= 1e8 &&
-  Math.abs(v * 1000 - Math.round(v * 1000)) < 0.0001
+  Number.isInteger(v)
     ? Math.round(v * 1000)
-    : fail("Use a positive quantity with up to 3 decimals");
+    : fail("Use a whole-number quantity (0 or more)");
 export class Store {
   inventory!: Inventory;
   private constructor(public db: DataConnection) {}

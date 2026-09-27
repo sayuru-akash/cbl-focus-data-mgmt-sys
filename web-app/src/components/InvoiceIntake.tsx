@@ -847,7 +847,7 @@ export default function InvoiceIntake({
                             <input
                               type="number"
                               min="0"
-                              step=".001"
+                              step="1"
                               disabled={busy || locked}
                               value={row.boxes ?? ""}
                               onChange={(e) =>
@@ -860,7 +860,7 @@ export default function InvoiceIntake({
                             <input
                               type="number"
                               min="0"
-                              step=".001"
+                              step="1"
                               disabled={busy || locked}
                               value={row.sold ?? ""}
                               onChange={(e) =>

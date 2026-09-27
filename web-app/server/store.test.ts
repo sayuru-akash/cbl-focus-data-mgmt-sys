@@ -114,12 +114,13 @@ describe("Stock ledger", () => {
     );
     expect(new Uint8Array((await s.bill(b.id)).raw)).toEqual(bytes);
   });
-  test("fractional quantities use integer ledger units", async () => {
-    const s = await fresh(),
-      p = await item(s, "A", 0.3),
-      b = await bill(s, [{ productId: p, quantity: 0.1 }]);
-    await s.decide(b, "accepted");
-    expect((await s.products())[0].stock).toBe(0.2);
+  test("fractional stock, adjustments and bill quantities are rejected without ledger changes", async () => {
+    const s = await fresh(), p = await item(s, "A", 3);
+    await expect(item(s, "B", 0.3)).rejects.toThrow("whole-number");
+    await expect(s.adjust(p, { quantity: 0.5, reason: "Count" })).rejects.toThrow("whole-number");
+    await expect(s.adjust(p, { quantity: -0.5, reason: "Count" })).rejects.toThrow("whole-number");
+    await expect(bill(s, [{ productId: p, quantity: 0.1 }])).rejects.toThrow("whole-number");
+    expect((await s.products())[0].stock).toBe(3);
   });
   test("duplicate invoice numbers are rejected", async () => {
     const s = await fresh(),
@@ -179,15 +180,23 @@ describe("Stock ledger", () => {
   });
 });
 
-test('concurrent duplicate prints and competing approvals cannot double deduct stock',async()=>{
-  const s=await fresh();const productId=await item(s,'PARALLEL',5);
-  const raw=new TextEncoder().encode('same captured print');
-  const [a,b]=await Promise.all([s.ingest(raw,'a','','phone'),s.ingest(raw,'b','','phone')]);
-  expect(a.id).toBe(b.id);expect([a,b].filter(r=>r.duplicate)).toHaveLength(1);
-  const first=await bill(s,[{productId,quantity:4}],'CONCURRENT1');
-  const second=await bill(s,[{productId,quantity:4}],'CONCURRENT2');
-  const result=await Promise.allSettled([s.decide(first,'accepted'),s.decide(second,'accepted')]);
-  expect(result.filter(r=>r.status==='fulfilled')).toHaveLength(1);
+test("concurrent duplicate prints and competing approvals cannot double deduct stock", async () => {
+  const s = await fresh();
+  const productId = await item(s, "PARALLEL", 5);
+  const raw = new TextEncoder().encode("same captured print");
+  const [a, b] = await Promise.all([
+    s.ingest(raw, "a", "", "phone"),
+    s.ingest(raw, "b", "", "phone"),
+  ]);
+  expect(a.id).toBe(b.id);
+  expect([a, b].filter((r) => r.duplicate)).toHaveLength(1);
+  const first = await bill(s, [{ productId, quantity: 4 }], "CONCURRENT1");
+  const second = await bill(s, [{ productId, quantity: 4 }], "CONCURRENT2");
+  const result = await Promise.allSettled([
+    s.decide(first, "accepted"),
+    s.decide(second, "accepted"),
+  ]);
+  expect(result.filter((r) => r.status === "fulfilled")).toHaveLength(1);
   expect((await s.product(productId)).stock).toBe(1000);
   expect((await s.inventory.lots(productId))[0].remaining).toBe(1);
 });

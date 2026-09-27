@@ -501,7 +501,8 @@ export class Intakes {
       if (!Number.isInteger(l.page) || l.page < 0 || l.page >= d.pages.length)
         fail("Invalid source page");
       for (const v of [l.sold, l.boxes, l.packSize])
-        if (v !== null && !finite(v)) fail("Invalid quantity");
+        if (v !== null && (!finite(v) || !Number.isInteger(v)))
+          fail("Quantities must be whole numbers");
       for (const v of [l.amount, l.unitPrice, l.mrp]) if (v !== null) cents(v);
       if (l.productId && !(await this.store.product(l.productId)))
         fail("Select an active product");
