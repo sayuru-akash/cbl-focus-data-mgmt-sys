@@ -274,7 +274,8 @@ export function financeCsv(report: FinanceReport) {
   ];
   const cell = (v: unknown) => {
     let text = typeof v === "number" ? v.toFixed(2) : String(v ?? "");
-    if (typeof v !== "number" && /^[=+@\-\t\r\n]/.test(text)) text = "'" + text;
+    if (typeof v !== "number" && /^(?:\s*[=+@-]|[\t\r\n])/.test(text))
+      text = "'" + text;
     return '"' + text.replaceAll('"', '""') + '"';
   };
   return (

@@ -72,8 +72,12 @@ function Summary({ report }: { report: FinanceReport }) {
   return (
     <div className="finance-report">
       <div className="finance-counts">
-        <span>{s.bills} bills</span>
-        <span>{s.customers} customers</span>
+        <span>
+          {s.bills} {s.bills === 1 ? "bill" : "bills"}
+        </span>
+        <span>
+          {s.customers} {s.customers === 1 ? "customer" : "customers"}
+        </span>
         {report.filters.status === "all" && (
           <>
             <span>{s.accepted} accepted</span>

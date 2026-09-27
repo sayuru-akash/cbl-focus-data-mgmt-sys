@@ -105,7 +105,7 @@ export class Store {
         "ALTER TABLE bills ADD COLUMN customer_id TEXT REFERENCES customers(id)",
       );
     await this.db.exec(
-      "CREATE INDEX IF NOT EXISTS bills_customer_status ON bills(customer_id,status,received); CREATE INDEX IF NOT EXISTS bills_status_received ON bills(status,received)",
+      "CREATE INDEX IF NOT EXISTS bills_customer_status ON bills(customer_id,status,received); CREATE INDEX IF NOT EXISTS bills_status_received ON bills(status,received); CREATE INDEX IF NOT EXISTS bills_finance_period ON bills(status,(COALESCE(NULLIF(json_extract(receipt,'$.date'),''),substr(received,1,10))))",
     );
     await this.db.transaction(async () => {
       const pending = (await this.db
