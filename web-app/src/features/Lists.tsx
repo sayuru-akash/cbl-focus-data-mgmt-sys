@@ -156,31 +156,54 @@ export function InvoiceList() {
             ),
           },
           { accessorKey: "supplier", header: "Supplier" },
-          { accessorKey: "date", header: "Date" },
+          {
+            accessorKey: "date",
+            header: "Date",
+            cell: ({ getValue }) => (
+              <span className="invoice-cell-value">{getValue()}</span>
+            ),
+          },
           {
             accessorKey: "pages",
             header: "Pages",
             cell: ({ getValue }) => getValue() || "No photos",
           },
-          { accessorKey: "status", header: "Status", cell: statusCell },
+          {
+            accessorKey: "status",
+            header: "Status",
+            cell: (props) => (
+              <span className="invoice-cell-value">{statusCell(props)}</span>
+            ),
+          },
           {
             accessorKey: "total",
             header: "Total",
-            cell: ({ getValue }) => money(getValue()),
+            cell: ({ getValue }) => (
+              <span className="invoice-cell-value">{money(getValue())}</span>
+            ),
           },
-          open(
-            (r) =>
-              `/stock/${r.kind === "receipt" ? "receipts" : "invoices"}/${r.id}`,
-          ),
           {
-            id: "delete",
+            id: "actions",
             header: "",
             enableSorting: false,
-            cell: ({ row }) =>
-              row.original.kind !== "receipt" &&
-              row.original.status === "draft" ? (
-                <DeleteIntakeButton id={row.original.id} onDeleted={refresh} />
-              ) : null,
+            cell: ({ row }) => (
+              <div className="invoice-row-actions">
+                <Link
+                  className="record-open"
+                  aria-label={`Open ${row.original.number || "invoice"}`}
+                  href={`/stock/${row.original.kind === "receipt" ? "receipts" : "invoices"}/${row.original.id}`}
+                >
+                  <ChevronRight size={19} />
+                </Link>
+                {row.original.kind !== "receipt" &&
+                  row.original.status === "draft" && (
+                    <DeleteIntakeButton
+                      id={row.original.id}
+                      onDeleted={refresh}
+                    />
+                  )}
+              </div>
+            ),
           },
         ]}
       />

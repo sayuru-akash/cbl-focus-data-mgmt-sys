@@ -1427,3 +1427,14 @@ button.primary:hover {
 .modal.radix-modal > * {
   flex-shrink: 0;
 }
+
+.invoice-cell-value {
+  white-space: nowrap;
+}
+.invoice-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 72px;
+}
