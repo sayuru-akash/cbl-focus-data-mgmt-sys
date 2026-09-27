@@ -157,3 +157,11 @@ For development, stop the production runner and use `bun run dev:sample` (sample
 Run `bun test`, `bun run typecheck`, and `bun run build` to verify changes. Tests use separate in-memory or temporary databases and never modify the live workspace. `bun run backup` creates a SQLite snapshot and checks its integrity. Set `DATA_DIR=data/sample` for a sample backup. Store scheduled backups outside this machine before relying on it for live business data.
 
 Cloud deployment, scheduled external backups, Android camera capture, and prolonged Bluetooth operation on the actual devices still need their own environment-specific verification. Local browser and transaction tests do not establish those guarantees.
+
+## Finance
+
+Finance reports accepted sales by bill date, with month-to-date, month, previous-month, year-to-date, and custom date ranges in Sri Lanka time. Drafts are a separate preview; rejected and deleted bills never contribute. Search, sorting and CSV export use the same filters, and totals cover every matching bill rather than just the current table page.
+
+Chocolate, Candy Bar and Cereal Bars (printed as `CERIAL BARS`) are the printed GRTS breakdown of bill and SKU discounts, never another deduction. Category edits are available on draft bills. Differences are flagged instead of allocating them by guesswork. Line discounts are shown separately in the breakdown. Fresh and market return values, reverse GRTS, and free quantities are also available. Net billed is not payment collection or profit.
+
+Deleting an accepted bill within ten days of approval reverses its recorded allocations atomically. A fresh-return batch used by another bill or adjustment blocks deletion until its dependencies are resolved. Bill records disappear from Finance immediately; only an upload fingerprint remains to prevent a delayed exact retry from recreating a deleted bill.

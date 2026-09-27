@@ -1,3 +1,4 @@
+import { categoryDiscounts, discountCategories } from "./discount-categories";
 import { AppError, string, units } from "./store";
 import { cents } from "./inventory";
 import {
@@ -78,6 +79,12 @@ export function reviewedReceipt(
     customerAddress: string(input.customerAddress || "", 1000),
     customerPhone: string(input.customerPhone || "", 100),
     items,
+    categoryDiscounts: Object.fromEntries(
+      discountCategories.map(({ key }) => [
+        key,
+        price(categoryDiscounts(input)[key]),
+      ]),
+    ) as ReturnType<typeof categoryDiscounts>,
     accounting,
   };
   const comparable = (r: any) =>
@@ -98,6 +105,7 @@ export function reviewedReceipt(
         i.discount || 0,
         i.mrp ?? null,
       ]),
+      categoryDiscounts(r),
       r.accounting?.discount || 0,
       r.accounting?.skuDiscount || 0,
       r.accounting?.returnReversal || 0,

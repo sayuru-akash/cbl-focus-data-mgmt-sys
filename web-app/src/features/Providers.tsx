@@ -13,6 +13,7 @@ import {
   Box,
   Link as LinkIcon,
   Users,
+  ChartNoAxesCombined,
   Monitor,
   LogOut,
 } from "lucide-react";
@@ -147,6 +148,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             {[
               { href: "/bills", label: "Bills", Icon: FileText },
               { href: "/stock", label: "Stock", Icon: Box },
+              { href: "/finance", label: "Finance", Icon: ChartNoAxesCombined },
               { href: "/customers", label: "Customers", Icon: Users },
               { href: "/connection", label: "Connection", Icon: LinkIcon },
             ].map(({ href, label, Icon }) => (

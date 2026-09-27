@@ -1,3 +1,4 @@
+import type { CategoryDiscounts } from "./discount-categories";
 export const RECEIPT_VERSION = 2;
 export type LineKind = "sale" | "free" | "fresh_return" | "market_return";
 export const lineKind = (bill: any, item: any): LineKind =>
@@ -20,6 +21,7 @@ export type ReceiptLine = {
   mrp?: number;
 };
 export type Receipt = {
+  categoryDiscounts?: CategoryDiscounts;
   edited?: boolean;
   reviewed?: boolean;
   version: number;

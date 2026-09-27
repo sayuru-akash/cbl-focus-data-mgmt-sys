@@ -12,6 +12,11 @@ import {
   Download,
   Box,
 } from "lucide-react";
+import {
+  categoryDiscounts,
+  categoryDifference,
+  discountCategories,
+} from "../../server/discount-categories";
 import ProductPicker from "../components/ProductPicker";
 import { api, date, type Bill, type Product } from "../api";
 import { Empty, SearchBox, ErrorText, Modal } from "../components/UI";
@@ -42,6 +47,7 @@ export default function BillReview({
   onUpdate,
   navigationGuard,
   panel = false,
+  backLabel = "Back to bills",
 }: {
   id: string;
   products: Product[];
@@ -49,6 +55,7 @@ export default function BillReview({
   onUpdate: () => void;
   navigationGuard?: MutableRefObject<BillNavigationGuard>;
   panel?: boolean;
+  backLabel?: string;
 }) {
   const router = useRouter();
   const baseline = useRef("");
@@ -367,7 +374,7 @@ export default function BillReview({
         {!panel && (
           <button
             className="icon-button"
-            aria-label="Back to bills"
+            aria-label={backLabel}
             onClick={() => navigate(onClose)}
           >
             <ArrowLeft size={19} />
@@ -475,6 +482,41 @@ export default function BillReview({
               </p>
             ))}
           </>
+        )}
+        {bill.receipt && accounting && (
+          <details className="bill-customer-editor">
+            <summary>Discount categories</summary>
+            <div className="fields three">
+              {discountCategories.map(({ key, label }) => (
+                <label key={key}>
+                  {label}
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    disabled={!editable || busy}
+                    value={categoryDiscounts(bill.receipt)[key]}
+                    onChange={(e) =>
+                      editReceipt((r) => ({
+                        ...r,
+                        categoryDiscounts: {
+                          ...categoryDiscounts(r),
+                          [key]: Number(e.target.value),
+                        },
+                      }))
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+            {categoryDifference(bill.receipt) !== 0 && (
+              <p className="receipt-warning">
+                Category difference: Rs{" "}
+                {money(categoryDifference(bill.receipt))}. Match bill + SKU
+                discounts.
+              </p>
+            )}
+          </details>
         )}
         {accounting && (
           <dl className="bill-accounting" aria-label="Bill totals">

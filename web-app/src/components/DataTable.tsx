@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import {
@@ -32,6 +32,7 @@ export default function DataTable({
   preserveStatus = false,
   extra = {},
   onRowsChange,
+  renderSummary,
 }: {
   endpoint: string;
   columns: ColumnDef<Row, any>[];
@@ -43,6 +44,7 @@ export default function DataTable({
   preserveStatus?: boolean;
   extra?: Record<string, string>;
   onRowsChange?: (rows: Row[]) => void;
+  renderSummary?: (data: any) => ReactNode;
 }) {
   const router = useRouter(),
     path = usePathname(),
@@ -175,7 +177,7 @@ export default function DataTable({
               From
               <input
                 type="date"
-                value={searchParams.get("from") || ""}
+                value={searchParams.get("from") || extra.from || ""}
                 onInput={(e) => update({ from: e.currentTarget.value })}
                 onChange={(e) => update({ from: e.target.value })}
               />
@@ -184,7 +186,7 @@ export default function DataTable({
               To
               <input
                 type="date"
-                value={searchParams.get("to") || ""}
+                value={searchParams.get("to") || extra.to || ""}
                 onInput={(e) => update({ to: e.currentTarget.value })}
                 onChange={(e) => update({ to: e.target.value })}
               />
@@ -213,6 +215,14 @@ export default function DataTable({
           </button>
         )}
       </div>
+      {renderSummary &&
+        (data.data && !data.isPlaceholderData && !data.isError ? (
+          renderSummary(data.data)
+        ) : (
+          <p className="finance-loading">
+            {data.isError ? "Report unavailable" : "Updating report…"}
+          </p>
+        ))}
       <ErrorText message={data.error?.message || ""} />
       {data.isError && (
         <button onClick={() => void data.refetch()}>Try again</button>

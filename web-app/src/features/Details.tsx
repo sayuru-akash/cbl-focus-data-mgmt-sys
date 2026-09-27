@@ -15,11 +15,19 @@ export function BillDetail({ id }: { id: string }) {
     router = useRouter();
   const back = useSearchParams().get("returnTo");
   const returnTo =
-    back && (back === "/bills" || back.startsWith("/bills?")) ? back : "/bills";
+    back &&
+    ["/bills", "/finance"].some(
+      (path) => back === path || back.startsWith(path + "?"),
+    )
+      ? back
+      : "/bills";
   return (
     <div className="record-page">
       <BillReview
         id={id}
+        backLabel={
+          returnTo.startsWith("/finance") ? "Back to Finance" : "Back to bills"
+        }
         products={products}
         onUpdate={refresh}
         onClose={() => router.push(returnTo)}

@@ -7,6 +7,7 @@ import { networkInterfaces } from "node:os";
 import { Store, AppError, string } from "./store";
 import { Intakes } from "./intake";
 import { grid } from "./grid";
+import { finance, financeCsv } from "./finance";
 import { cents } from "./inventory";
 let pending: Promise<{ store: Store; intakes: Intakes }> | undefined;
 export function workspace() {
@@ -269,6 +270,18 @@ export async function handleApi(
             .map((lot) => ({ mrp: lot.mrp, remaining: lot.remaining })),
         });
       }
+      if (path === "/api/finance/export" && method === "GET") {
+        const report = await finance(store, url.searchParams, new Date(), true);
+        return new Response(financeCsv(report), {
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="finance-${report.filters.from}-${report.filters.to}.csv"`,
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+      if (path === "/api/finance" && method === "GET")
+        return json(await finance(store, url.searchParams));
       const table = path.match(
         /^\/api\/tables\/(products|bills|invoices|customers|lots|movements)$/,
       );

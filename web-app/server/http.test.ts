@@ -45,6 +45,8 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
       await Bun.sleep(30);
     }
     expect((await fetch(base + "/api/tables/products")).status).toBe(401);
+    expect((await fetch(base + "/api/finance")).status).toBe(401);
+    expect((await fetch(base + "/api/finance/export")).status).toBe(401);
     expect(
       (
         await fetch(base + "/api/login", {
@@ -64,6 +66,13 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
     expect(login.status).toBe(200);
     const cookie = login.headers.get("set-cookie")!.split(";")[0]!;
     const headers = { Cookie: cookie, Origin: base };
+    expect((await fetch(base + "/api/finance", { headers })).status).toBe(200);
+    const financeExport = await fetch(base + "/api/finance/export", {
+      headers,
+    });
+    expect(financeExport.status).toBe(200);
+    expect(financeExport.headers.get("content-type")).toContain("text/csv");
+    expect(financeExport.headers.get("cache-control")).toBe("no-store");
     expect(
       (await fetch(base + "/api/tables/products?size=10000", { headers }))
         .status,
