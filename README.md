@@ -87,7 +87,7 @@ Production uses HTTPS, secure HTTP-only sessions, a database-backed login limit,
 
 Project: `cbl-focus-data-mgmt-sys`, root directory `web-app`, runtime Bun, region Singapore. The public address is https://cbf.amsonline.lk. See `.env.example` for the environment contract. No credential belongs in `NEXT_PUBLIC_*`, an APK, or Git.
 
-Set these Vercel Production variables: `DATABASE_URL`, `DATABASE_URL_POOLED`, `APP_URL`, `SECURE_COOKIES`, `OCR_ENGINE`, `R2_BUCKET`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `CRON_SECRET`. Database and R2 values are secret. The scheduled `/api/maintenance` route verifies `CRON_SECRET`.
+Set these Vercel Production variables: `DATABASE_URL`, `DATABASE_URL_POOLED`, `APP_URL`, `SECURE_COOKIES`, `OCR_ENGINE`, `R2_BUCKET`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `CRON_SECRET`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_TOKEN`, and `CLOUDFLARE_AI_MODEL`. Database, R2 and AI tokens are secret. The scheduled `/api/maintenance` route verifies `CRON_SECRET`.
 
 `bun scripts/migrate-postgres.ts` migrates the real local SQLite workspace into an empty Neon database, preserving existing password and connector hashes/keys. It makes a consistent local backup, verifies row counts and stock balances, rejects sample folders, and refuses to overwrite an already-migrated or populated destination. Sessions are not migrated. For a new empty installation only, use `WORKSPACE_PASSWORD` (at least 10 characters) and optionally `CONNECTOR_KEY` during first setup, then remove the password environment variable.
 
@@ -138,7 +138,7 @@ Stock in has one intake path: upload or photograph every page of one supplier in
 - Every item and page must be checked before posting. Totals must reconcile exactly. Re-uploaded photo sets reopen the existing record; supplier/TIN invoice uniqueness and atomic posting prevent stock from being added twice. Stale review revisions cannot overwrite newer changes.
 - Historical manual stock receipts remain read-only. Use invoice photos for new deliveries. Stock corrections require a reason and retain movement history.
 
-Local macOS OCR uses Apple Vision and Tesseract orientation detection. Cloud `OCR_ENGINE=tesseract` uses bundled English recognition, but is not accurate enough on the supplied faint dot-matrix invoices. Optional `OCR_ENGINE=cloudflare` sends invoice images to Workers AI using server-only `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_TOKEN` and `CLOUDFLARE_AI_MODEL`. Model access, billing approval and recognition quality must be verified before enabling it. Original photos and previews are held privately in R2 while a cloud draft is pending, then removed after approval. OCR never approves stock: codes, totals, pack sizes and page numbers must be checked against the photo.
+Cloud `OCR_ENGINE=cloudflare` uses Sharp to prepare a full page and overlapping close-ups, Tesseract for orientation, and Cloudflare-hosted `@cf/qwen/qwen3.8-27b` for structured extraction. Model access and usage quotas depend on the Cloudflare account. Each page is cached separately so retrying a later page does not repeat completed work. Local macOS OCR uses Apple Vision when no cloud engine is selected. Original photos and previews are held privately in R2 while a cloud draft is pending, then removed after approval. OCR never approves stock: codes, totals, pack sizes and page numbers must be checked against the photo, and MRP must be confirmed from the packaging.
 
 ## Runtime and development
 

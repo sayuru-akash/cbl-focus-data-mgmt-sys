@@ -20,7 +20,7 @@ export async function detectPhotoRotation(raw: Uint8Array) {
     void worker.terminate();
   }, 20000);
   try {
-    const result = await worker.detect(raw);
+    const result = await worker.detect(Buffer.from(raw));
     return result.data.orientation_degrees || 0;
   } finally {
     clearTimeout(timer);
