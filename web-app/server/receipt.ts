@@ -9,6 +9,7 @@ export const lineKindLabel: Record<LineKind, string> = {
   market_return: "Market return",
 };
 export type ReceiptLine = {
+  discount?: number;
   kind: LineKind;
   section: string;
   name: string;
@@ -19,6 +20,8 @@ export type ReceiptLine = {
   mrp?: number;
 };
 export type Receipt = {
+  edited?: boolean;
+  reviewed?: boolean;
   version: number;
   accounting: {
     gross: number;
@@ -245,10 +248,10 @@ export function parseReceipt(
     discount = lastSummary("Discount") ?? 0,
     skuDiscount = lastSummary("SkuDiscount") ?? 0,
     returnCredit = lastSummary("Returns") ?? returnGross - reverseCents;
-  if (Math.abs(gross - sales) > 1)
+  if (Math.abs(gross - sales) > 0)
     warn("Sale items do not match the printed gross total.");
   if (
-    Math.abs(returnGross - reverseCents - returnCredit) > 1 ||
+    Math.abs(returnGross - reverseCents - returnCredit) > 0 ||
     reverseCents > returnGross
   )
     warn("Returns do not match the printed return credit.");
@@ -258,7 +261,7 @@ export function parseReceipt(
   const calculated = gross - discount - skuDiscount - returnCredit;
   if (!items.length) warn("No item quantities could be extracted.");
   if (total === null) warn("The invoice total could not be extracted.");
-  else if (Math.abs(calculated - Math.round(total * 100)) > 1)
+  else if (Math.abs(calculated - Math.round(total * 100)) > 0)
     warn(
       "The calculated net total does not match the print. Check discounts and returns.",
     );
@@ -329,30 +332,55 @@ export function parseReceipt(
 export function billReviewErrors(bill: any): string[] {
   const receipt: Receipt | null = bill.receipt;
   if (!receipt) return [];
-  if (!Array.isArray(receipt.items) || !Array.isArray(receipt.warnings)) return ["Print details are incomplete. Restore printed items before accepting."];
-  const errors = [...receipt.warnings];
+  if (!Array.isArray(receipt.items) || !Array.isArray(receipt.warnings))
+    return [
+      "Print details are incomplete. Restore printed items before accepting.",
+    ];
+  const errors = receipt.reviewed ? [] : [...receipt.warnings];
   if (receipt.version !== RECEIPT_VERSION)
     errors.push("Reload the extracted print before accepting.");
   if (bill.number !== receipt.number)
-    errors.push("Bill number must match the original print.");
+    errors.push("Save the updated bill details before accepting.");
   const seen = new Set<number>();
   for (const item of bill.items) {
     const source = receipt.items[item.sourceLine];
     if (!source || seen.has(item.sourceLine)) {
-      errors.push(
-        "Keep every printed item exactly once. Restore printed items before accepting.",
-      );
+      errors.push("Each bill item needs one stock or return entry.");
       continue;
     }
     seen.add(item.sourceLine);
     if (Math.round(item.quantity * 1000) !== Math.round(source.quantity * 1000))
-      errors.push(
-        "Quantities must match the original print. Restore printed items before accepting.",
-      );
+      errors.push("Save the updated quantities before accepting.");
   }
   if (seen.size !== receipt.items.length)
-    errors.push(
-      "Some printed items are missing. Restore printed items before accepting.",
-    );
+    errors.push("Some bill items are missing their stock or return entry.");
   return [...new Set(errors)];
+}
+
+export function recalculateReceipt(receipt: Receipt): Receipt {
+  const sum = (kinds: LineKind[]) =>
+    receipt.items
+      .filter((i) => kinds.includes(i.kind))
+      .reduce((n, i) => n + Math.round(i.amount * 100), 0);
+  const gross = sum(["sale"]),
+    returnGross = sum(["fresh_return", "market_return"]),
+    discount = Math.round((receipt.accounting.discount || 0) * 100),
+    skuDiscount = Math.round((receipt.accounting.skuDiscount || 0) * 100),
+    reversal = Math.round((receipt.accounting.returnReversal || 0) * 100),
+    returns = returnGross - reversal;
+  const total = (gross - discount - skuDiscount - returns) / 100;
+  return {
+    ...receipt,
+    total,
+    accounting: {
+      gross: gross / 100,
+      discount: discount / 100,
+      skuDiscount: skuDiscount / 100,
+      returnGross: returnGross / 100,
+      returnReversal: reversal / 100,
+      returns: returns / 100,
+      calculatedNet: total,
+      difference: 0,
+    },
+  };
 }

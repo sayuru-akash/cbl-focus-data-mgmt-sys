@@ -57,57 +57,63 @@ async function prepare(s: Store, text: string, opening = 1000) {
 test("all observed bills post correct sale/free/return movements and retries change nothing", async () => {
   const s = await openTestStore();
   try {
-    for (const example of prints) {
-      const b = await prepare(s, await fixture(example.number));
-      const before = new Map((await s.products()).map((p) => [p.id, p.stock]));
-      expect((await s.inventory.plan(b)).issues).toEqual([]);
-      await s.decide(b.id, "accepted");
-      const posted = await s.bill(b.id),
-        expected = new Map(before);
-      for (const i of posted.items) {
-        const src = posted.receipt.items[i.sourceLine];
-        if (src.kind === "market_return") continue;
-        expected.set(
-          i.productId,
-          (expected.get(i.productId) || 0) +
-            (src.kind === "fresh_return" ? i.quantity : -i.quantity),
+    await s.db.transaction(async () => {
+      for (const example of prints) {
+        const b = await prepare(s, await fixture(example.number));
+        const before = new Map(
+          (await s.products()).map((p) => [p.id, p.stock]),
         );
-      }
-      for (const p of await s.products()) {
-        expect(p.stock).toBe(expected.get(p.id));
-        expect(p.lots.reduce((n: number, l: any) => n + l.remaining, 0)).toBe(p.stock);
-      }
-      const returns = await s.db
-        .query("SELECT * FROM bill_returns WHERE bill_id=? ORDER BY line")
-        .all(b.id);
-      expect(returns.length).toBe(example.counts[2] + example.counts[3]);
-      for (const r of returns) {
-        if (r.kind === "market_return") {
-          expect(r.lot_id).toBeNull();
-          expect(r.product_id).toBeNull();
-        } else {
-          const lot = await s.db
-            .query("SELECT * FROM stock_lots WHERE id=?")
-            .get(r.lot_id);
-          expect(lot.mrp).toBe(1500);
-          expect(lot.remaining).toBe(144000);
-          expect(lot.cost).toBeNull();
+        expect((await s.inventory.plan(b)).issues).toEqual([]);
+        await s.decide(b.id, "accepted");
+        const posted = await s.bill(b.id),
+          expected = new Map(before);
+        for (const i of posted.items) {
+          const src = posted.receipt.items[i.sourceLine];
+          if (src.kind === "market_return") continue;
+          expected.set(
+            i.productId,
+            (expected.get(i.productId) || 0) +
+              (src.kind === "fresh_return" ? i.quantity : -i.quantity),
+          );
         }
+        for (const p of await s.products()) {
+          expect(p.stock).toBe(expected.get(p.id));
+          expect(p.lots.reduce((n: number, l: any) => n + l.remaining, 0)).toBe(
+            p.stock,
+          );
+        }
+        const returns = await s.db
+          .query("SELECT * FROM bill_returns WHERE bill_id=? ORDER BY line")
+          .all(b.id);
+        expect(returns.length).toBe(example.counts[2] + example.counts[3]);
+        for (const r of returns) {
+          if (r.kind === "market_return") {
+            expect(r.lot_id).toBeNull();
+            expect(r.product_id).toBeNull();
+          } else {
+            const lot = await s.db
+              .query("SELECT * FROM stock_lots WHERE id=?")
+              .get(r.lot_id);
+            expect(lot.mrp).toBe(1500);
+            expect(lot.remaining).toBe(144000);
+            expect(lot.cost).toBeNull();
+          }
+        }
+        const snapshot = JSON.stringify(await s.products());
+        await s.decide(b.id, "accepted");
+        expect(JSON.stringify(await s.products())).toBe(snapshot);
+        expect(
+          (
+            await s.ingest(
+              Buffer.from(await fixture(example.number)),
+              "retry",
+              "",
+              "Test",
+            )
+          ).duplicate,
+        ).toBe(true);
       }
-      const snapshot = JSON.stringify(await s.products());
-      await s.decide(b.id, "accepted");
-      expect(JSON.stringify(await s.products())).toBe(snapshot);
-      expect(
-        (
-          await s.ingest(
-            Buffer.from(await fixture(example.number)),
-            "retry",
-            "",
-            "Test",
-          )
-        ).duplicate,
-      ).toBe(true);
-    }
+    })();
   } finally {
     await s.db.close();
   }
@@ -157,7 +163,7 @@ test("mixed returns use matching MRP, support credit totals, retain FIFO and nev
     expect(b.receipt.total).toBe(-882);
     expect(b.receipt.warnings).toEqual([]);
     await s.saveBill(id, b);
-    await s.decide(id, "accepted");
+    await Promise.all([s.decide(id, "accepted"), s.decide(id, "accepted")]);
     expect((await s.product(p!)).stock).toBe(100000);
     expect(
       (await s.inventory.lots(p!))
@@ -219,7 +225,7 @@ test("free-item shortages roll back returns, newly created products and every de
     await s.db.close();
   }
 });
-test("missing/duplicate source lines and altered quantities cannot bypass the printed bill", async () => {
+test("stock entries must stay in sync with the reviewed bill", async () => {
   const s = await openTestStore();
   try {
     const b = await prepare(s, await fixture("73354"));
@@ -230,7 +236,7 @@ test("missing/duplicate source lines and altered quantities cannot bypass the pr
     ]) {
       await s.saveBill(b.id, { ...b, revision: undefined, items });
       await expect(s.decide(b.id, "accepted")).rejects.toThrow(
-        /printed|original print/,
+        /bill item|updated quantities/,
       );
     }
     const latest = await s.bill(b.id);
@@ -249,6 +255,7 @@ test("unrecognized return sections, missing rows and incorrect discounts block a
     mixed.replace("EXPIRY :", "UNCLASSIFIED :"),
     mixed.replace("PKT 50 18.00 900.00", "???"),
     mixed.replace("Gross : 72.00", "Gross : 72.00\nDiscount : 2.00"),
+    mixed.replace("-882.00", "-881.99"),
   ])
     expect(parseReceipt(text)!.warnings.length).toBeGreaterThan(0);
 });

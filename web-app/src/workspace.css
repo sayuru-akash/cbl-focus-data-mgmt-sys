@@ -1032,3 +1032,48 @@ button.primary:hover {
 .new-return-item small {
   color: #52627a;
 }
+
+.return-breakdown summary {
+  cursor: pointer;
+}
+.return-breakdown p {
+  margin: 6px 0 0 12px;
+  font-size: 12px;
+}
+
+.bill-accounting input {
+  width: 130px;
+  min-height: 34px;
+  padding: 6px 10px;
+  text-align: right;
+}
+.bill-line-editor,
+.bill-customer-editor {
+  margin: 12px 0;
+  font-size: 13px;
+}
+.bill-line-editor summary,
+.bill-customer-editor summary {
+  cursor: pointer;
+  color: #2456a6;
+}
+.bill-line-editor .fields,
+.bill-customer-editor .fields {
+  margin-top: 12px;
+}
+.bill-review-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin: 12px 0;
+}
+.bill-review-check input {
+  width: auto;
+  min-height: 0;
+}
+@media (max-width: 600px) {
+  .bill-accounting input {
+    width: 110px;
+  }
+}

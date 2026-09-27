@@ -75,6 +75,7 @@ export type Bill = {
   items: Item[];
   note: string;
   preview?: string;
+  originalReceipt?: import("../server/receipt").Receipt | null;
   receipt?: import("../server/receipt").Receipt | null;
 };
 export const date = (s: string) =>

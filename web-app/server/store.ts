@@ -1,3 +1,4 @@
+import { reviewedReceipt } from "./reviewed-receipt";
 import { mapAsync } from "./db";
 import { openDatabase, type DataConnection } from "./db";
 import { createHash, randomUUID } from "node:crypto";
@@ -52,6 +53,13 @@ export class Store {
  CREATE TABLE IF NOT EXISTS bill_parse_history(id TEXT PRIMARY KEY,bill_id TEXT NOT NULL REFERENCES bills(id),receipt TEXT,items TEXT NOT NULL,revision INTEGER NOT NULL,created TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS customers(id TEXT PRIMARY KEY,outlet_id TEXT NOT NULL UNIQUE,name TEXT NOT NULL,address TEXT NOT NULL,phone TEXT NOT NULL,created TEXT NOT NULL,last_seen TEXT NOT NULL);
  `);
+    const historyColumns = await this.db
+      .query("PRAGMA table_info(bill_parse_history)")
+      .all();
+    if (!historyColumns.some((c) => c.name === "metadata"))
+      await this.db.exec(
+        "ALTER TABLE bill_parse_history ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'",
+      );
     const productColumns = (await this.db
       .query("PRAGMA table_info(products)")
       .all()) as {
@@ -87,6 +95,10 @@ export class Store {
       );
     if (!columns.some((column) => column.name === "receipt"))
       await this.db.exec("ALTER TABLE bills ADD COLUMN receipt TEXT");
+    if (!columns.some((column) => column.name === "original_receipt")) {
+      await this.db.exec("ALTER TABLE bills ADD COLUMN original_receipt TEXT");
+      await this.db.exec("UPDATE bills SET original_receipt=receipt");
+    }
     if (!columns.some((column) => column.name === "customer_id"))
       await this.db.exec(
         "ALTER TABLE bills ADD COLUMN customer_id TEXT REFERENCES customers(id)",
@@ -111,7 +123,9 @@ export class Store {
         const receipt = JSON.parse(bill.receipt || "null");
         if (!receipt || receipt.version === RECEIPT_VERSION) continue;
         await this.db
-          .query("INSERT INTO bill_parse_history VALUES (?,?,?,?,?,?)")
+          .query(
+            "INSERT INTO bill_parse_history(id,bill_id,receipt,items,revision,created) VALUES (?,?,?,?,?,?)",
+          )
           .run(
             randomUUID(),
             bill.id,
@@ -177,10 +191,11 @@ export class Store {
     }
     await this.db
       .query(
-        "UPDATE bills SET preview=?,receipt=?,number=?,shop=?,items=?,customer_id=? WHERE id=?",
+        "UPDATE bills SET preview=?,receipt=?,original_receipt=?,number=?,shop=?,items=?,customer_id=? WHERE id=?",
       )
       .run(
         decoded.preview,
+        JSON.stringify(receipt),
         JSON.stringify(receipt),
         number,
         shop,
@@ -437,6 +452,7 @@ export class Store {
       ...r,
       items: JSON.parse(r.items),
       receipt: JSON.parse(r.receipt || "null"),
+      originalReceipt: JSON.parse(r.original_receipt || r.receipt || "null"),
     };
   }
   async reviewBill(id: string) {
@@ -465,7 +481,9 @@ export class Store {
         );
       if (!b.receipt) fail("No recognized print to restore");
       await this.db
-        .query("INSERT INTO bill_parse_history VALUES (?,?,?,?,?,?)")
+        .query(
+          "INSERT INTO bill_parse_history(id,bill_id,receipt,items,revision,created) VALUES (?,?,?,?,?,?)",
+        )
         .run(
           randomUUID(),
           id,
@@ -506,6 +524,10 @@ export class Store {
     if (!Array.isArray(input.items) || input.items.length > 500)
       fail("Invalid bill items");
     const originalBill = await this.bill(id);
+    const receipt =
+      originalBill.receipt && input.receipt
+        ? reviewedReceipt(input.receipt, originalBill.receipt, number, shop)
+        : originalBill.receipt;
     const items = await mapAsync(input.items, async (item: any) => {
       const productId = string(item.productId, 50);
       const quantity = units(item.quantity);
@@ -517,13 +539,11 @@ export class Store {
         sourceLine !== undefined &&
         (!Number.isInteger(sourceLine) ||
           sourceLine < 0 ||
-          !originalBill.receipt?.items[sourceLine])
+          !receipt?.items[sourceLine])
       )
         fail("Invalid source item");
       const source =
-        sourceLine === undefined
-          ? null
-          : originalBill.receipt.items[sourceLine];
+        sourceLine === undefined ? null : receipt.items[sourceLine];
       const mrp = cents(source?.mrp ?? item.mrp),
         sellingPrice = cents(source?.rate ?? item.sellingPrice);
       if (
@@ -550,9 +570,41 @@ export class Store {
         );
       await this.db
         .query(
-          "UPDATE bills SET number=?,shop=?,items=?,note=?,revision=revision+1 WHERE id=?",
+          "INSERT INTO bill_parse_history(id,bill_id,receipt,items,revision,created) VALUES (?,?,?,?,?,?)",
         )
-        .run(number, shop, JSON.stringify(items), note, id);
+        .run(
+          randomUUID(),
+          id,
+          JSON.stringify(current.receipt),
+          JSON.stringify(current.items),
+          current.revision,
+          new Date().toISOString(),
+        );
+      await this.db
+        .query(
+          "UPDATE bill_parse_history SET metadata=? WHERE bill_id=? AND revision=?",
+        )
+        .run(
+          JSON.stringify({
+            number: current.number,
+            shop: current.shop,
+            note: current.note,
+          }),
+          id,
+          current.revision,
+        );
+      await this.db
+        .query(
+          "UPDATE bills SET number=?,shop=?,items=?,note=?,receipt=?,revision=revision+1 WHERE id=?",
+        )
+        .run(
+          number,
+          shop,
+          JSON.stringify(items),
+          note,
+          JSON.stringify(receipt),
+          id,
+        );
     })();
     return { revision: (await this.bill(id)).revision };
   }
@@ -569,6 +621,19 @@ export class Store {
       if (status === "accepted") {
         if (!b.number || !b.shop || !b.items.length)
           fail("Add bill number, shop, and items first");
+        if (
+          b.originalReceipt?.number &&
+          (await this.db
+            .query(
+              "SELECT id FROM bills WHERE id<>? AND status='accepted' AND json_extract(original_receipt,'$.number')=? AND json_extract(original_receipt,'$.outletId')=?",
+            )
+            .get(
+              id,
+              b.originalReceipt.number,
+              b.originalReceipt.outletId || "",
+            ))
+        )
+          fail("This original invoice has already been accepted");
         const reviewErrors = billReviewErrors(b);
         if (reviewErrors.length) fail(reviewErrors[0]);
         await this.inventory.consume(b);

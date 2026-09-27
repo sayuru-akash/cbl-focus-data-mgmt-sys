@@ -16,7 +16,14 @@ import ProductPicker from "../components/ProductPicker";
 import { api, date, type Bill, type Product } from "../api";
 import { Empty, SearchBox, ErrorText, Modal } from "../components/UI";
 import InvoiceIntake from "../components/InvoiceIntake";
-import { billReviewErrors, lineKindLabel } from "../../server/receipt";
+import BillLineEditor, { editLine } from "../components/BillLineEditor";
+import {
+  billReviewErrors,
+  lineKindLabel,
+  recalculateReceipt,
+  type Receipt,
+  type ReceiptLine,
+} from "../../server/receipt";
 const money = (n: number) =>
   n.toLocaleString("en-US", {
     minimumFractionDigits: 2,
@@ -26,7 +33,7 @@ const money = (n: number) =>
 export type BillNavigationGuard = ((next: () => void) => void) | null;
 const unsavedBills = new Map<string, Bill>();
 const editableValue = (b: Bill) =>
-  JSON.stringify([b.number, b.shop, b.items, b.note]);
+  JSON.stringify([b.number, b.shop, b.items, b.note, b.receipt]);
 
 export default function BillReview({
   id,
@@ -63,6 +70,7 @@ export default function BillReview({
     bill.status === "pending" &&
     editableValue(bill) !== baseline.current;
   function apply(received: Bill) {
+    current.current = received;
     baseline.current = editableValue(received);
     unsavedBills.delete(id);
     setBill(received);
@@ -147,6 +155,95 @@ export default function BillReview({
       clearInterval(timer);
     };
   }, [id, reloadKey]);
+  function editReceipt(change: (r: Receipt) => Receipt) {
+    setBill((b) => {
+      if (!b?.receipt) return b;
+      const receipt = {
+        ...recalculateReceipt(change(b.receipt)),
+        edited: true,
+      };
+      return {
+        ...b,
+        receipt,
+        items: b.items.map((i) => {
+          const line = receipt.items[i.sourceLine!];
+          return line
+            ? {
+                ...i,
+                quantity: line.quantity,
+                mrp: line.mrp ?? null,
+                sellingPrice: line.rate,
+                createReturnProduct:
+                  line.kind === "fresh_return" ? i.createReturnProduct : false,
+              }
+            : i;
+        }),
+      };
+    });
+  }
+  function editReceiptLine(index: number, line: ReceiptLine) {
+    editReceipt((r) => ({
+      ...r,
+      items: r.items.map((v, j) => (j === index ? line : v)),
+    }));
+  }
+  function addLine() {
+    if (!bill) return;
+    if (!bill.receipt) {
+      setBill({
+        ...bill,
+        items: [...bill.items, { productId: "", quantity: 1 }],
+      });
+      return;
+    }
+    const sourceLine = bill.receipt.items.length;
+    setBill({
+      ...bill,
+      receipt: recalculateReceipt({
+        ...bill.receipt,
+        edited: true,
+        items: [
+          ...bill.receipt.items,
+          {
+            name: "New item",
+            unit: "PKT",
+            quantity: 1,
+            rate: 0,
+            amount: 0,
+            kind: "sale",
+            section: "Sale",
+          },
+        ],
+      }),
+      items: [
+        ...bill.items,
+        { productId: "", quantity: 1, sourceLine, mrp: null, sellingPrice: 0 },
+      ],
+    });
+  }
+  function removeLine(index: number) {
+    if (!bill) return;
+    const sourceLine = bill.items[index].sourceLine;
+    if (sourceLine === undefined || !bill.receipt) {
+      setBill({ ...bill, items: bill.items.filter((_, i) => i !== index) });
+      return;
+    }
+    setBill({
+      ...bill,
+      receipt: recalculateReceipt({
+        ...bill.receipt,
+        edited: true,
+        items: bill.receipt.items.filter((_, i) => i !== sourceLine),
+      }),
+      items: bill.items
+        .filter((_, i) => i !== index)
+        .map((i) => ({
+          ...i,
+          sourceLine:
+            i.sourceLine! > sourceLine ? i.sourceLine! - 1 : i.sourceLine,
+        })),
+    });
+  }
   async function act(action: "save" | "accept" | "reject") {
     if (!bill) return;
     setBusy(true);
@@ -206,9 +303,20 @@ export default function BillReview({
       </div>
     );
   const editable = bill.status === "pending";
-  const reviewErrors = editable ? billReviewErrors(bill) : bill.receipt?.warnings || [];
+  const reviewErrors = editable
+    ? billReviewErrors(bill)
+    : bill.receipt?.warnings || [];
   const accounting = bill.receipt?.accounting;
+  const editSummary = (
+    field: "discount" | "skuDiscount" | "returnReversal",
+    value: number,
+  ) =>
+    editReceipt((r) => ({
+      ...r,
+      accounting: { ...r.accounting, [field]: value },
+    }));
   async function restorePrint() {
+    const bill = current.current;
     if (!bill) return;
     setBusy(true);
     setError("");
@@ -326,35 +434,81 @@ export default function BillReview({
               <dt>Gross</dt>
               <dd>Rs {money(accounting.gross)}</dd>
             </div>
-            {accounting.discount !== 0 && (
+            {(editable || accounting.discount !== 0) && (
               <div>
                 <dt>Discount</dt>
-                <dd>- {money(accounting.discount)}</dd>
+                <dd>
+                  {editable ? (
+                    <input
+                      aria-label="Bill discount"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      disabled={busy}
+                      value={accounting.discount}
+                      onChange={(e) =>
+                        editSummary("discount", Number(e.target.value))
+                      }
+                    />
+                  ) : (
+                    `- ${money(accounting.discount)}`
+                  )}
+                </dd>
               </div>
             )}
-            {accounting.skuDiscount !== 0 && (
+            {(editable || accounting.skuDiscount !== 0) && (
               <div>
                 <dt>SKU discount</dt>
-                <dd>- {money(accounting.skuDiscount)}</dd>
+                <dd>
+                  {editable ? (
+                    <input
+                      aria-label="SKU discount"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      disabled={busy}
+                      value={accounting.skuDiscount}
+                      onChange={(e) =>
+                        editSummary("skuDiscount", Number(e.target.value))
+                      }
+                    />
+                  ) : (
+                    `- ${money(accounting.skuDiscount)}`
+                  )}
+                </dd>
               </div>
             )}
-            {accounting.returnGross !== 0 && (
-              <>
-                <div>
-                  <dt>Return value</dt>
-                  <dd>{money(accounting.returnGross)}</dd>
-                </div>
-                {accounting.returnReversal !== 0 && (
-                  <div>
-                    <dt>Reverse GRTS</dt>
-                    <dd>- {money(accounting.returnReversal)}</dd>
-                  </div>
-                )}
-                <div>
-                  <dt>Return credit</dt>
-                  <dd>- {money(accounting.returns)}</dd>
-                </div>
-              </>
+            {(accounting.returnGross !== 0 || accounting.returns !== 0) && (
+              <div>
+                <dt>
+                  <details className="return-breakdown">
+                    <summary>Return credit</summary>
+                    <p>Item value: {money(accounting.returnGross)}</p>
+                    <p>
+                      Reverse GRTS:{" "}
+                      {editable ? (
+                        <input
+                          aria-label="Reverse GRTS"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          disabled={busy}
+                          value={accounting.returnReversal}
+                          onChange={(e) =>
+                            editSummary(
+                              "returnReversal",
+                              Number(e.target.value),
+                            )
+                          }
+                        />
+                      ) : (
+                        `- ${money(accounting.returnReversal)}`
+                      )}
+                    </p>
+                  </details>
+                </dt>
+                <dd>- {money(accounting.returns)}</dd>
+              </div>
             )}
             <div className="bill-net">
               <dt>Net payable</dt>
@@ -371,6 +525,27 @@ export default function BillReview({
               </div>
             )}
           </dl>
+        )}
+        {bill.receipt?.edited && bill.originalReceipt?.total != null && (
+          <p className="receipt-address">
+            Original total: Rs {money(bill.originalReceipt.total)}
+          </p>
+        )}
+        {editable && !!bill.receipt?.warnings.length && (
+          <label className="bill-review-check">
+            <input
+              type="checkbox"
+              disabled={busy}
+              checked={bill.receipt.reviewed || false}
+              onChange={(e) =>
+                setBill({
+                  ...bill,
+                  receipt: { ...bill.receipt!, reviewed: e.target.checked },
+                })
+              }
+            />
+            I checked the bill against the original.
+          </label>
         )}
         <div className="source-title">
           <button className="text-button" onClick={() => setSource(!source)}>
@@ -400,7 +575,15 @@ export default function BillReview({
             <input
               disabled={!editable || busy}
               value={bill.number}
-              onChange={(e) => setBill({ ...bill, number: e.target.value })}
+              onChange={(e) =>
+                setBill({
+                  ...bill,
+                  number: e.target.value,
+                  receipt: bill.receipt
+                    ? { ...bill.receipt, number: e.target.value, edited: true }
+                    : null,
+                })
+              }
             />
           </label>
           <label>
@@ -408,13 +591,75 @@ export default function BillReview({
             <input
               disabled={!editable || busy}
               value={bill.shop}
-              onChange={(e) => setBill({ ...bill, shop: e.target.value })}
+              onChange={(e) =>
+                setBill({
+                  ...bill,
+                  shop: e.target.value,
+                  receipt: bill.receipt
+                    ? { ...bill.receipt, shop: e.target.value, edited: true }
+                    : null,
+                })
+              }
             />
           </label>
         </div>
+        {bill.receipt && (
+          <details className="bill-customer-editor">
+            <summary>Bill &amp; customer details</summary>
+            <div className="fields two">
+              <label>
+                Date
+                <input
+                  type="date"
+                  disabled={!editable || busy}
+                  value={bill.receipt.date}
+                  onChange={(e) =>
+                    editReceipt((r) => ({ ...r, date: e.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                Outlet ID
+                <input
+                  disabled={!editable || busy}
+                  value={bill.receipt.outletId}
+                  onChange={(e) =>
+                    editReceipt((r) => ({ ...r, outletId: e.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                Address
+                <input
+                  disabled={!editable || busy}
+                  value={bill.receipt.customerAddress}
+                  onChange={(e) =>
+                    editReceipt((r) => ({
+                      ...r,
+                      customerAddress: e.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                Phone
+                <input
+                  disabled={!editable || busy}
+                  value={bill.receipt.customerPhone}
+                  onChange={(e) =>
+                    editReceipt((r) => ({
+                      ...r,
+                      customerPhone: e.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+          </details>
+        )}
         <div className="section-title">
           <h3>Items</h3>
-          {editable && bill.receipt && reviewErrors.length > 0 && (
+          {editable && bill.receipt && (
             <button
               className="text-button"
               disabled={busy}
@@ -423,17 +668,8 @@ export default function BillReview({
               Restore printed items
             </button>
           )}
-          {editable && !bill.receipt && (
-            <button
-              className="text-button"
-              disabled={busy}
-              onClick={() =>
-                setBill({
-                  ...bill,
-                  items: [...bill.items, { productId: "", quantity: 1 }],
-                })
-              }
-            >
+          {editable && (
+            <button className="text-button" disabled={busy} onClick={addLine}>
               <Plus size={16} />
               Add item
             </button>
@@ -480,10 +716,15 @@ export default function BillReview({
                 </div>
               )}
               <div className="line-item">
-                {!market && !item.createReturnProduct && (
+                {!item.createReturnProduct && (
                   <ProductPicker
                     label={`Item ${i + 1}`}
-                    showStock={kind !== "fresh_return"}
+                    emptyLabel={
+                      market
+                        ? "Link stock item (optional)"
+                        : "Choose stock item"
+                    }
+                    showStock={kind === "sale" || kind === "free"}
                     unit={original?.unit}
                     mrp={original?.mrp ?? item.mrp}
                     disabled={!editable || busy}
@@ -508,11 +749,7 @@ export default function BillReview({
                     </small>
                   </div>
                 )}
-                {original ? (
-                  <strong className="bill-quantity">
-                    {item.quantity} {original.unit}
-                  </strong>
-                ) : (
+                {
                   <input
                     type="number"
                     aria-label={`Quantity ${i + 1}`}
@@ -521,18 +758,25 @@ export default function BillReview({
                     disabled={!editable || busy}
                     value={item.quantity}
                     onChange={(e) =>
-                      setBill({
-                        ...bill,
-                        items: bill.items.map((v, j) =>
-                          i === j
-                            ? { ...v, quantity: Number(e.target.value) }
-                            : v,
-                        ),
-                      })
+                      original
+                        ? editReceiptLine(
+                            item.sourceLine!,
+                            editLine(original, {
+                              quantity: Number(e.target.value),
+                            }),
+                          )
+                        : setBill({
+                            ...bill,
+                            items: bill.items.map((v, j) =>
+                              i === j
+                                ? { ...v, quantity: Number(e.target.value) }
+                                : v,
+                            ),
+                          })
                     }
                   />
-                )}
-                {(!original || original.mrp === undefined) && (
+                }
+                {!original && (
                   <input
                     aria-label={`MRP ${i + 1}`}
                     type="number"
@@ -559,22 +803,24 @@ export default function BillReview({
                     }
                   />
                 )}
-                {editable && !original && (
+                {editable && (
                   <button
                     className="icon-button"
                     disabled={busy}
                     aria-label={`Remove item ${i + 1}`}
-                    onClick={() =>
-                      setBill({
-                        ...bill,
-                        items: bill.items.filter((_, j) => j !== i),
-                      })
-                    }
+                    onClick={() => removeLine(i)}
                   >
                     <Trash2 size={16} />
                   </button>
                 )}
               </div>
+              {editable && original && (
+                <BillLineEditor
+                  line={original}
+                  disabled={busy}
+                  onChange={(line) => editReceiptLine(item.sourceLine!, line)}
+                />
+              )}
               {editable && kind === "fresh_return" && !item.productId && (
                 <button
                   className="text-button"
