@@ -1356,3 +1356,74 @@ button.primary:hover {
   justify-content: flex-end;
   margin-bottom: 12px;
 }
+
+/* Shared dialog rhythm for confirmations, warnings and edit forms. */
+.modal.radix-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  max-width: calc(100vw - 32px);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.modal.radix-modal > header {
+  gap: 16px;
+  margin: 0 0 4px;
+}
+.modal.radix-modal > header h2 {
+  font-size: 20px;
+  line-height: 1.3;
+  letter-spacing: -0.3px;
+}
+.modal.radix-modal > header .icon-button {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+}
+.modal.radix-modal > p,
+.modal.radix-modal > .intake-warning-list {
+  margin: 0;
+}
+.modal.radix-modal p {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.modal.radix-modal > form {
+  display: grid;
+  gap: 16px;
+}
+.modal.radix-modal :is(.actions, .modal-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.modal.radix-modal :is(.actions, .modal-actions) > button {
+  min-height: 40px;
+  padding: 10px 16px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.modal.radix-modal .danger:hover:not(:disabled) {
+  background: #943333;
+}
+@media (max-width: 480px) {
+  .modal.radix-modal {
+    padding: 20px;
+    max-height: calc(100dvh - 32px);
+  }
+  .modal.radix-modal > header h2 {
+    font-size: 18px;
+  }
+  .modal.radix-modal :is(.actions, .modal-actions) > button {
+    flex: 1 1 130px;
+    min-height: 44px;
+  }
+}
+.modal.radix-modal > * {
+  flex-shrink: 0;
+}

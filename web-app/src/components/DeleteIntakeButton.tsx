@@ -62,12 +62,13 @@ export default function DeleteIntakeButton({
   return (
     <>
       <button
-        className="danger-text"
+        className="icon-button danger-text"
+        aria-label="Delete draft"
+        title="Delete draft"
         disabled={disabled || busy}
         onClick={() => void inspect()}
       >
-        <Trash2 size={16} />
-        Delete draft
+        <Trash2 size={18} />
       </button>
       {open && (
         <Modal

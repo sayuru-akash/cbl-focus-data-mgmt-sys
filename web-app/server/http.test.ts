@@ -51,6 +51,14 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
     expect((await fetch(base + "/api/finance/export")).status).toBe(401);
     expect(
       (
+        await fetch(base + "/api/intakes/test-draft", {
+          method: "DELETE",
+          body: JSON.stringify({ revision: 1, confirmation: "DELETE" }),
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
         await fetch(base + "/api/login", {
           method: "POST",
           headers: {
@@ -68,6 +76,52 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
     expect(login.status).toBe(200);
     const cookie = login.headers.get("set-cookie")!.split(";")[0]!;
     const headers = { Cookie: cookie, Origin: base };
+    const photos = new FormData();
+    photos.append(
+      "pages",
+      new File([new Uint8Array([1, 2, 3])], "draft.jpg", {
+        type: "image/jpeg",
+      }),
+    );
+    const photoDraft = await (
+      await fetch(base + "/api/intakes", {
+        method: "POST",
+        headers,
+        body: photos,
+      })
+    ).json();
+    expect(photoDraft.status).toBe("draft");
+    const deletion = { revision: photoDraft.revision, confirmation: "DELETE" };
+    expect(
+      (
+        await fetch(base + `/api/intakes/${photoDraft.id}`, {
+          method: "DELETE",
+          headers: { ...headers, Origin: "http://evil.invalid" },
+          body: JSON.stringify(deletion),
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await fetch(base + `/api/intakes/${photoDraft.id}`, {
+          method: "DELETE",
+          headers,
+          body: JSON.stringify({ ...deletion, confirmation: "" }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await fetch(base + `/api/intakes/${photoDraft.id}`, {
+          method: "DELETE",
+          headers,
+          body: JSON.stringify(deletion),
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await fetch(base + `/api/intakes/${photoDraft.id}`, { headers })).status,
+    ).toBe(404);
     expect((await fetch(base + "/api/finance", { headers })).status).toBe(200);
     const financeExport = await fetch(base + "/api/finance/export", {
       headers,

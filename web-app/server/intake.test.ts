@@ -560,3 +560,126 @@ test("warning acceptance cannot bypass stock, money, item-review or page-complet
     await store.db.close();
   }
 });
+
+test("draft deletion removes pages and upload links, preserves stock and retries photo cleanup", async () => {
+  const { store, id } = await setup();
+  let failures = 1;
+  const removed: string[] = [];
+  const intakes = await Intakes.open(store, {
+    delete: async (keys: string[]) => {
+      if (failures-- > 0) throw new Error("Offline");
+      removed.push(...keys);
+    },
+  } as any);
+  try {
+    const productId = await store.saveProduct({
+      sku: "KEEP",
+      name: "Existing stock",
+      unit: "PKT",
+      stock: 8,
+    });
+    await store.db
+      .query(
+        "UPDATE intake_pages SET object_key=?,preview_key=? WHERE intake_id=?",
+      )
+      .run("drafts/remove/original", "drafts/remove/preview", id);
+    await store.db
+      .query(
+        "INSERT INTO photo_uploads(id,files,expires,intake_id) VALUES (?,?,?,?)",
+      )
+      .run(
+        "upload-delete-test",
+        JSON.stringify([{ key: "staging/remove/original" }]),
+        Date.now() + 100000,
+        id,
+      );
+    await expect(intakes.deleteDraft(id, 1, "")).rejects.toThrow("Type DELETE");
+    await expect(intakes.deleteDraft(id, 0, "DELETE")).rejects.toThrow(
+      "changed",
+    );
+    await store.db
+      .query("UPDATE intakes SET processing_until=? WHERE id=?")
+      .run(Date.now() + 100000, id);
+    await expect(intakes.deleteDraft(id, 1, "DELETE")).rejects.toThrow(
+      "processing",
+    );
+    expect((await intakes.get(id)).pages).toHaveLength(1);
+    await store.db
+      .query("UPDATE intakes SET processing_until=0 WHERE id=?")
+      .run(id);
+    expect(await intakes.deleteDraft(id, 1, "DELETE")).toEqual({
+      deleted: true,
+    });
+    await expect(intakes.get(id)).rejects.toThrow("not found");
+    expect(
+      await store.db
+        .query("SELECT * FROM intake_pages WHERE intake_id=?")
+        .all(id),
+    ).toHaveLength(0);
+    expect(
+      await store.db
+        .query("SELECT * FROM photo_uploads WHERE intake_id=?")
+        .all(id),
+    ).toHaveLength(0);
+    expect(await store.db.query("SELECT * FROM photo_gc").all()).toHaveLength(
+      3,
+    );
+    expect(
+      (await store.products()).find((p) => p.id === productId)!.stock,
+    ).toBe(8);
+    expect(await store.db.query("SELECT * FROM purchases").all()).toHaveLength(
+      0,
+    );
+    await intakes.cleanupPhotos();
+    expect(removed.sort()).toEqual([
+      "drafts/remove/original",
+      "drafts/remove/preview",
+      "staging/remove/original",
+    ]);
+    expect(await store.db.query("SELECT * FROM photo_gc").all()).toHaveLength(
+      0,
+    );
+    expect(await intakes.deleteDraft(id, 1, "DELETE")).toEqual({
+      deleted: true,
+    });
+  } finally {
+    await store.db.close();
+  }
+});
+
+test("received invoices cannot be deleted, including concurrent receive and delete requests", async () => {
+  const { store, intakes, id } = await setup();
+  try {
+    const received = await intakes.receive(id, 1);
+    await expect(
+      intakes.deleteDraft(id, received.revision, "DELETE"),
+    ).rejects.toThrow("Received invoices cannot be deleted");
+    expect((await intakes.get(id)).status).toBe("received");
+    expect((await store.products())[0].stock).toBe(9);
+  } finally {
+    await store.db.close();
+  }
+  const second = await setup();
+  try {
+    const results = await Promise.allSettled([
+      second.intakes.deleteDraft(second.id, 1, "DELETE"),
+      second.intakes.receive(second.id, 1),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const record = await second.store.db
+      .query("SELECT status FROM intakes WHERE id=?")
+      .get(second.id);
+    const products = await second.store.products();
+    if (record) {
+      expect(record.status).toBe("received");
+      expect(products[0].stock).toBe(9);
+    } else {
+      expect(products).toHaveLength(0);
+      expect(
+        await second.store.db.query("SELECT * FROM purchases").all(),
+      ).toHaveLength(0);
+    }
+  } finally {
+    await second.store.db.close();
+  }
+});
