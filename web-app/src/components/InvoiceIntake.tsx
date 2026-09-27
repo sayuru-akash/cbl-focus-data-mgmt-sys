@@ -1,6 +1,7 @@
 import { invoiceCosts } from "../../server/intake-costs";
 import { lineIssues, draftValidation } from "../../server/intake-validation";
 import ProductPicker from "./ProductPicker";
+import DeleteIntakeButton from "./DeleteIntakeButton";
 import { useEffect, useRef, useState } from "react";
 import {
   Camera,
@@ -385,6 +386,20 @@ export default function InvoiceIntake({
         }}
       >
         <div className="invoice-intake">
+          {intake?.status === "draft" && !loading && (
+            <div className="intake-draft-actions">
+              <DeleteIntakeButton
+                id={intake.id}
+                disabled={busy || intake.processing}
+                onDeleted={() => {
+                  setIntake(null);
+                  setDraft(null);
+                  onSaved();
+                  onClose();
+                }}
+              />
+            </div>
+          )}
           {loading ? (
             <p role="status" className="muted">
               Loading invoice…

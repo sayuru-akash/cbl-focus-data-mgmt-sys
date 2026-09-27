@@ -344,6 +344,12 @@ async function handleApiResponse(
           });
         }
         if (!action && method === "GET") return json(await intakes.get(id!));
+        if (!action && method === "DELETE") {
+          const input = await req.json();
+          return json(
+            await intakes.deleteDraft(id!, input.revision, input.confirmation),
+          );
+        }
         if (!action && method === "PUT")
           return json(await intakes.save(id!, await req.json()));
         if (action === "process" && method === "POST")

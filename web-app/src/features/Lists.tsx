@@ -3,6 +3,8 @@ import Link from "next/link";
 import { Plus, ChevronRight } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import DataTable, { type Row } from "../components/DataTable";
+import DeleteIntakeButton from "../components/DeleteIntakeButton";
+import { useStock } from "./Providers";
 export const money = (value: number | null | undefined) =>
   value == null
     ? "Not recorded"
@@ -116,6 +118,7 @@ export function StockList() {
   );
 }
 export function InvoiceList() {
+  const { refresh } = useStock();
   return (
     <>
       <header className="page-header">
@@ -169,6 +172,16 @@ export function InvoiceList() {
             (r) =>
               `/stock/${r.kind === "receipt" ? "receipts" : "invoices"}/${r.id}`,
           ),
+          {
+            id: "delete",
+            header: "",
+            enableSorting: false,
+            cell: ({ row }) =>
+              row.original.kind !== "receipt" &&
+              row.original.status === "draft" ? (
+                <DeleteIntakeButton id={row.original.id} onDeleted={refresh} />
+              ) : null,
+          },
         ]}
       />
     </>

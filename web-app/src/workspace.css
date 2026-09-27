@@ -1350,3 +1350,9 @@ button.primary:hover {
   cursor: pointer;
   font-weight: 600;
 }
+
+.intake-draft-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}

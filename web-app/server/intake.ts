@@ -177,6 +177,64 @@ export class Intakes {
         .all()
     ).map((r: any) => ({ ...r, draft: JSON.parse(r.draft) }));
   }
+  async deleteDraft(id: string, revision: number, confirmation: unknown) {
+    if (confirmation !== "DELETE") fail("Type DELETE to confirm");
+    await this.store.db.transaction(async () => {
+      const current = await this.store.db
+        .query("SELECT * FROM intakes WHERE id=?")
+        .get(id);
+      if (!current) return;
+      if (current.status !== "draft" || current.purchase_id)
+        fail("Received invoices cannot be deleted");
+      if (current.revision !== revision)
+        throw new AppError(
+          "This draft changed. Reopen the delete confirmation",
+          409,
+        );
+      if (current.processing_until > Date.now())
+        throw new AppError(
+          "Wait for photo processing to finish before deleting",
+          409,
+        );
+      const pages = await this.store.db
+        .query(
+          "SELECT object_key,preview_key FROM intake_pages WHERE intake_id=?",
+        )
+        .all(id);
+      const uploads = await this.store.db
+        .query("SELECT files FROM photo_uploads WHERE intake_id=?")
+        .all(id);
+      const keys = new Set<string>();
+      for (const page of pages)
+        for (const key of [page.object_key, page.preview_key])
+          if (key) keys.add(key);
+      for (const upload of uploads)
+        for (const file of JSON.parse(upload.files))
+          if (file.key) keys.add(file.key);
+      for (const key of keys)
+        await this.store.db
+          .query(
+            "INSERT INTO photo_gc VALUES (?,?) ON CONFLICT(key) DO UPDATE SET after_ms=excluded.after_ms",
+          )
+          .run(key, Date.now());
+      await this.store.db
+        .query("DELETE FROM photo_uploads WHERE intake_id=?")
+        .run(id);
+      const removed = await this.store.db
+        .query(
+          "DELETE FROM intakes WHERE id=? AND status='draft' AND purchase_id IS NULL AND revision=? AND processing_until<=?",
+        )
+        .run(id, revision, Date.now());
+      if (!removed.changes)
+        throw new AppError(
+          "This draft changed or is processing. Reopen the delete confirmation",
+          409,
+        );
+      // Page rows cascade; products, batches and stock movements are untouched.
+    })();
+    await this.cleanupPhotos().catch(() => {});
+    return { deleted: true };
+  }
   async get(id: string) {
     const r = (await this.store.db
       .query("SELECT * FROM intakes WHERE id=?")
