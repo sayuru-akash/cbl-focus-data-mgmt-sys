@@ -1,5 +1,11 @@
 "use client";
-import { createContext, useContext, useState, useEffect } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -16,13 +22,16 @@ import {
   ChartNoAxesCombined,
   Monitor,
   LogOut,
+  CheckCircle2,
+  X,
 } from "lucide-react";
 import { api, type Product } from "../api";
 import { ErrorText } from "../components/UI";
 const StockContext = createContext<{
   products: Product[];
   refresh: () => void;
-}>({ products: [], refresh: () => {} });
+  notify: (message: string) => void;
+}>({ products: [], refresh: () => {}, notify: () => {} });
 export const useStock = () => useContext(StockContext);
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [client] = useState(
@@ -40,6 +49,13 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   );
 }
 function Shell({ children }: { children: React.ReactNode }) {
+  const [notice, setNotice] = useState<{ message: string } | null>(null);
+  const notify = useCallback((message: string) => setNotice({ message }), []);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
   const client = useQueryClient(),
     path = usePathname();
   const session = useQuery({
@@ -138,7 +154,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       </div>
     );
   return (
-    <StockContext.Provider value={{ products: [], refresh }}>
+    <StockContext.Provider value={{ products: [], refresh, notify }}>
       <div className="app-shell">
         <aside className="sidebar">
           <Link className="brand" href="/bills">
@@ -190,6 +206,24 @@ function Shell({ children }: { children: React.ReactNode }) {
           </div>
           <ErrorText message={error} />
           {children}
+          {notice && (
+            <div
+              className="success-notice"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <CheckCircle2 size={20} aria-hidden="true" />
+              <span>{notice.message}</span>
+              <button
+                className="icon-button"
+                aria-label="Dismiss notification"
+                onClick={() => setNotice(null)}
+              >
+                <X size={17} />
+              </button>
+            </div>
+          )}
         </main>
       </div>
     </StockContext.Provider>

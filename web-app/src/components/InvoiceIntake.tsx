@@ -1,3 +1,4 @@
+import { useStock } from "../features/Providers";
 import { invoiceCosts } from "../../server/intake-costs";
 import { lineIssues, draftValidation } from "../../server/intake-validation";
 import ProductPicker from "./ProductPicker";
@@ -46,6 +47,7 @@ export default function InvoiceIntake({
   products,
   onClose,
   onSaved,
+  onReceived,
   inline = false,
 }: {
   inline?: boolean;
@@ -53,8 +55,10 @@ export default function InvoiceIntake({
   products: Product[];
   onClose: () => void;
   onSaved: () => void;
+  onReceived?: () => void;
 }) {
   const router = useRouter();
+  const { notify } = useStock();
   const [leaveAction, setLeaveAction] = useState<(() => void) | null>(null);
   const [receivePrompt, setReceivePrompt] = useState<Intake | null>(null);
   const [intake, setIntake] = useState<Intake | null>(null),
@@ -234,7 +238,7 @@ export default function InvoiceIntake({
       if (current.status === "received" || current.draft.lines.length) {
         apply(current);
         setMessage("Opened the existing invoice.");
-        if (!id) router.replace(`/stock/invoices/${current.id}`);
+        if (inline && !id) router.replace(`/stock/invoices/${current.id}`);
         return;
       }
       do {
@@ -251,7 +255,7 @@ export default function InvoiceIntake({
       onSaved();
       setStep(-1);
       setPage(0);
-      if (!id) router.replace(`/stock/invoices/${current.id}`);
+      if (inline && !id) router.replace(`/stock/invoices/${current.id}`);
     });
   }
   useEffect(() => {
@@ -322,7 +326,8 @@ export default function InvoiceIntake({
     );
     setReceivePrompt(null);
     onSaved();
-    setMessage("Stock received.");
+    notify("Stock received. Inventory updated.");
+    (onReceived || onClose)();
   }
   async function prepareReceive() {
     await run(async () => {

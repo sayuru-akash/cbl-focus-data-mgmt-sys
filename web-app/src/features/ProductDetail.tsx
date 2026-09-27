@@ -11,7 +11,7 @@ import { money } from "./Lists";
 export function ProductDetail({ id }: { id: string }) {
   const router = useRouter(),
     params = useSearchParams(),
-    { refresh } = useStock();
+    { refresh, notify } = useStock();
   const data = useQuery({
     queryKey: ["product", id],
     queryFn: () => api<Product>(`/products/${id}`),
@@ -31,6 +31,7 @@ export function ProductDetail({ id }: { id: string }) {
       if (mode === "archive") {
         await api(`/products/${id}`, { method: "DELETE" });
         refresh();
+        notify("Item archived.");
         router.push("/stock");
         return;
       }
@@ -53,6 +54,7 @@ export function ProductDetail({ id }: { id: string }) {
         body: JSON.stringify(body),
       });
       refresh();
+      notify(mode === "adjust" ? "Stock corrected." : "Item updated.");
       setMode("");
     } catch (e: any) {
       setError(e.message);

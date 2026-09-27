@@ -1,3 +1,4 @@
+import { useStock } from "../features/Providers";
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { api } from "../api";
@@ -12,6 +13,7 @@ export default function DeleteIntakeButton({
   disabled?: boolean;
   onDeleted: () => void;
 }) {
+  const { notify } = useStock();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -52,6 +54,7 @@ export default function DeleteIntakeButton({
         body: JSON.stringify({ revision: draft.revision, confirmation }),
       });
       setOpen(false);
+      notify("Draft deleted.");
       onDeleted();
     } catch (e: any) {
       setError(e.message);

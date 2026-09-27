@@ -32,6 +32,7 @@ export default function BillInbox() {
   const [sequence, setSequence] = useState<string[]>([]);
   const guard = useRef<BillNavigationGuard>(null);
   const opener = useRef<HTMLElement | null>(null);
+  const title = useRef<HTMLHeadingElement | null>(null);
   const onRows = useCallback((next: Row[]) => {
     rows.current = next;
     setSequence((previous) =>
@@ -125,7 +126,9 @@ export default function BillInbox() {
     <>
       <header className="page-header">
         <div>
-          <h1>Bills</h1>
+          <h1 ref={title} tabIndex={-1}>
+            Bills
+          </h1>
           <p>From your print receiver.</p>
         </div>
         <span className="inbox-sync">
@@ -187,7 +190,8 @@ export default function BillInbox() {
               aria-describedby={undefined}
               onCloseAutoFocus={(e) => {
                 e.preventDefault();
-                opener.current?.focus();
+                if (opener.current?.isConnected) opener.current.focus();
+                else title.current?.focus();
               }}
               onPointerDownOutside={(e) => e.preventDefault()}
               onEscapeKeyDown={(e) => {

@@ -37,6 +37,7 @@ export type Product = {
   }[];
 };
 export type Item = {
+  automaticMatch?: boolean;
   createReturnProduct?: boolean;
   productId: string;
   quantity: number;

@@ -157,6 +157,24 @@ export class Inventory {
       return normalized.length === 1 ? normalized[0]!.id : "";
     };
   }
+  async billMatcher() {
+    const identify = await this.matcher();
+    const lots = await this.store.db
+      .query(
+        "SELECT DISTINCT product_id,mrp FROM stock_lots WHERE remaining>0 AND mrp IS NOT NULL",
+      )
+      .all();
+    const prices = new Set(lots.map((lot) => `${lot.product_id}:${lot.mrp}`));
+    return (
+      name: string,
+      unit: string,
+      mrp: number | null | undefined,
+    ): string => {
+      if (mrp == null || !Number.isFinite(mrp) || mrp < 0) return "";
+      const id = identify(name, unit);
+      return id && prices.has(`${id}:${cents(mrp)}`) ? id : "";
+    };
+  }
   async match(name: string, unit: string) {
     return (await this.matcher())(name, unit);
   }

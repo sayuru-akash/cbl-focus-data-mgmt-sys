@@ -17,6 +17,7 @@ import {
   categoryDifference,
   discountCategories,
 } from "../../server/discount-categories";
+import { useStock } from "../features/Providers";
 import PaymentBadge from "../components/PaymentBadge";
 import {
   paymentTypes,
@@ -71,6 +72,7 @@ export default function BillReview({
   backLabel?: string;
 }) {
   const router = useRouter();
+  const { notify } = useStock();
   const baseline = useRef("");
   const [leaveAction, setLeaveAction] = useState<(() => void) | null>(null);
   const [remote, setRemote] = useState<Bill | null>(null);
@@ -189,9 +191,16 @@ export default function BillReview({
         receipt,
         items: b.items.map((i) => {
           const line = receipt.items[i.sourceLine!];
+          const previous = b.receipt!.items[i.sourceLine!];
           return line
             ? {
                 ...i,
+                ...(i.automaticMatch &&
+                (line.mrp !== previous?.mrp ||
+                  line.name !== previous?.name ||
+                  line.unit !== previous?.unit)
+                  ? { productId: "" }
+                  : {}),
                 quantity: line.quantity,
                 mrp: line.mrp ?? null,
                 sellingPrice: line.rate,
@@ -315,20 +324,29 @@ export default function BillReview({
           return;
         }
       }
-      if (action !== "save")
+      if (action !== "save") {
         await api(`/bills/${id}/${action}`, {
           method: "POST",
           body: JSON.stringify({ revision }),
         });
-      apply(await api("/bills/" + id));
-      setSaved(
-        action === "save"
-          ? "Saved."
-          : action === "accept"
-            ? "Accepted. Stock updated."
-            : "Rejected.",
-      );
-      onUpdate();
+        // The mutation is committed. Do not let a follow-up read failure hide success.
+        apply({
+          ...bill,
+          revision,
+          status: action === "accept" ? "accepted" : "rejected",
+        });
+        onUpdate();
+        notify(
+          action === "accept"
+            ? `Bill #${bill.number} accepted. Stock updated.`
+            : `Bill #${bill.number} rejected.`,
+        );
+        onClose();
+      } else {
+        apply(await api("/bills/" + id));
+        setSaved("Saved.");
+        onUpdate();
+      }
       return true;
     } catch (e: any) {
       setError(e.message);
@@ -370,6 +388,11 @@ export default function BillReview({
       unsavedBills.delete(id);
       baseline.current = editableValue(bill);
       setDeleteStep(0);
+      notify(
+        bill.status === "accepted"
+          ? "Bill deleted. Stock restored."
+          : "Bill deleted.",
+      );
       onUpdate();
       onClose();
     } catch (e: any) {
@@ -905,7 +928,12 @@ export default function BillReview({
                         ...bill,
                         items: bill.items.map((v, j) =>
                           i === j
-                            ? { ...v, productId, createReturnProduct: false }
+                            ? {
+                                ...v,
+                                productId,
+                                automaticMatch: false,
+                                createReturnProduct: false,
+                              }
                             : v,
                         ),
                       })
@@ -1162,6 +1190,25 @@ export default function BillReview({
         <InvoiceIntake
           products={products}
           onClose={() => setRestock(false)}
+          onReceived={() => {
+            setRestock(false);
+            setIssues(null);
+            // Re-resolve new matching stock only when no local edits would be lost.
+            void api<Bill>(`/bills/${id}`)
+              .then((latest) => {
+                const draft = current.current;
+                if (
+                  draft &&
+                  latest.revision === draft.revision &&
+                  editableValue(draft) === baseline.current
+                )
+                  apply(latest);
+              })
+              .catch(() => {
+                /* The stock receipt has already succeeded. */
+              });
+            setSaved("Stock received. Review stock mappings before accepting.");
+          }}
           onSaved={() => {
             onUpdate();
             setSaved(

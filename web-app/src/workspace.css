@@ -1574,3 +1574,32 @@ button.primary:hover {
 .payment-bar-unset {
   background: #94a3b8;
 }
+
+.success-notice {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: min(460px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 14px;
+  background: #fff;
+  color: #1e40af;
+  box-shadow: 0 8px 32px #1e3a8a20;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.success-notice > svg {
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .success-notice {
+    bottom: 20px;
+    right: 16px;
+  }
+}

@@ -185,10 +185,11 @@ export class Store {
           "This invoice number already exists. Check for a reprint.",
         );
       else number = receipt.number;
-      const match = await this.inventory.matcher();
+      const match = await this.inventory.billMatcher();
       items = JSON.stringify(
         receipt.items.map((item, sourceLine) => ({
-          productId: match(item.name, item.unit),
+          productId: match(item.name, item.unit, item.mrp),
+          automaticMatch: true,
           quantity: item.quantity,
           sourceLine,
           mrp: item.mrp ?? null,
@@ -469,14 +470,23 @@ export class Store {
   async reviewBill(id: string) {
     const b = await this.bill(id);
     if (b.status === "pending") {
-      const match = await this.inventory.matcher();
+      const match = await this.inventory.billMatcher();
       b.items = b.items.map((item: any) => {
-        if (item.productId || item.sourceLine === undefined) return item;
+        // Pre-provenance, revision-one print mappings were automatic. Preserve
+        // older reviewed choices and explicit manual selections, including clearing.
+        if (
+          item.sourceLine === undefined ||
+          item.createReturnProduct ||
+          item.automaticMatch === false ||
+          (item.productId && item.automaticMatch !== true && b.revision > 1)
+        )
+          return item;
         const source = b.receipt?.items[item.sourceLine];
         return source
           ? {
               ...item,
-              productId: match(source.name, source.unit),
+              productId: match(source.name, source.unit, source.mrp),
+              automaticMatch: true,
             }
           : item;
       });
@@ -521,8 +531,13 @@ export class Store {
             (previous.kind || "sale") === source.kind
           );
         });
-        if (new Set(matches.map((m: any) => m.productId)).size === 1)
+        if (
+          new Set(matches.map((m: any) => m.productId)).size === 1 &&
+          matches.some((m: any) => m.automaticMatch !== true)
+        ) {
           item.productId = matches[0].productId;
+          item.automaticMatch = false;
+        }
       }
       await this.db
         .query("UPDATE bills SET items=?,revision=revision+1 WHERE id=?")
@@ -568,6 +583,9 @@ export class Store {
         fail("New return items are only allowed for unmapped fresh returns");
       return {
         productId,
+        ...(typeof item.automaticMatch === "boolean"
+          ? { automaticMatch: item.automaticMatch }
+          : {}),
         ...(item.createReturnProduct ? { createReturnProduct: true } : {}),
         quantity: quantity / 1000,
         mrp: mrp === null ? null : mrp / 100,
