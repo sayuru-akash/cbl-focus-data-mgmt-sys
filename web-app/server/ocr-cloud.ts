@@ -7,6 +7,12 @@ const require=createRequire(import.meta.url);
 function languagePath(code:'eng'|'osd') {
   return code==='eng' ? require('@tesseract.js-data/eng').langPath : require('@tesseract.js-data/osd').langPath;
 }
+export async function detectPhotoRotation(raw:Uint8Array) {
+  const worker=await createWorker('osd',OEM.TESSERACT_ONLY,{langPath:languagePath('osd'),cacheMethod:'none',legacyCore:true,legacyLang:true});
+  const timer=setTimeout(()=>{void worker.terminate();},20000);
+  try {const result=await worker.detect(raw);return result.data.orientation_degrees || 0;}
+  finally {clearTimeout(timer);await worker.terminate();}
+}
 export async function recognizeCloudPhoto(raw:Uint8Array,rotation?:number) {
   let worker:Worker|undefined;
   const deadline=setTimeout(()=>{void worker?.terminate();},210000);

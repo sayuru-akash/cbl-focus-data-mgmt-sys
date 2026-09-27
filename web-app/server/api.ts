@@ -19,7 +19,10 @@ export function workspace() {
       : process.env.DATABASE_URL_POOLED || process.env.DATABASE_URL;
     if (!database) throw new Error("DATABASE_URL is required");
     const store = await Store.open(database);
-    const intakes = await Intakes.open(store, local ? undefined : new PhotoStorage());
+    const intakes = await Intakes.open(
+      store,
+      local ? undefined : new PhotoStorage(),
+    );
     await store.db.exec(
       "CREATE TABLE IF NOT EXISTS login_attempts(address TEXT PRIMARY KEY,count INTEGER NOT NULL,until_ms INTEGER NOT NULL)",
     );
@@ -64,8 +67,11 @@ const authenticated = async (req: Request, store: Store) =>
       .query("SELECT token FROM sessions WHERE token=? AND expires>?")
       .get(token(req), Date.now()),
   );
-const safeEqual = (a: string, b: string) =>
-  a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+const safeEqual = (a: string, b: string) => {
+  const left = Buffer.from(a),
+    right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
+};
 export async function handleApi(
   req: Request,
   address = "",
@@ -92,10 +98,21 @@ export async function handleApi(
       )
         throw new AppError("Invalid request origin", 403);
     }
-    if (path === "/api/health") { await store.db.query("SELECT 1 AS ok").get(); return json({ ok: true }); }
-    if(path==='/api/maintenance' && method==='GET') {
-      if(!process.env.CRON_SECRET || !safeEqual(req.headers.get('authorization')||'',`Bearer ${process.env.CRON_SECRET}`))throw new AppError('Unauthorized',401);
-      await intakes.cleanupPhotos();return json({ok:true});
+    if (path === "/api/health") {
+      await store.db.query("SELECT 1 AS ok").get();
+      return json({ ok: true });
+    }
+    if (path === "/api/maintenance" && method === "GET") {
+      if (
+        !process.env.CRON_SECRET ||
+        !safeEqual(
+          req.headers.get("authorization") || "",
+          `Bearer ${process.env.CRON_SECRET}`,
+        )
+      )
+        throw new AppError("Unauthorized", 401);
+      await intakes.cleanupPhotos();
+      return json({ ok: true });
     }
     if (path === "/api/session" && method === "GET")
       return json({
@@ -258,9 +275,13 @@ export async function handleApi(
         if (!row) throw new AppError("Customer not found", 404);
         return json(row);
       }
-      if(path==='/api/intake-uploads' && method==='POST')return json(await intakes.prepareUpload(await req.json()));
-      const upload=path.match(/^\/api\/intake-uploads\/([a-f0-9-]+)\/complete$/);
-      if(upload && method==='POST')return json(await intakes.completeUpload(upload[1]!));
+      if (path === "/api/intake-uploads" && method === "POST")
+        return json(await intakes.prepareUpload(await req.json()));
+      const upload = path.match(
+        /^\/api\/intake-uploads\/([a-f0-9-]+)\/complete$/,
+      );
+      if (upload && method === "POST")
+        return json(await intakes.completeUpload(upload[1]!));
       if (path === "/api/intakes" && method === "GET")
         return json(await intakes.list());
       if (path === "/api/intakes" && method === "POST") {
@@ -277,7 +298,14 @@ export async function handleApi(
         const [, id, action, page, original] = intake;
         if (action === "pages" && page && method === "GET") {
           const file = await intakes.page(id!, page, Boolean(original));
-          if(file.url)return new Response(null,{status:302,headers:{Location:file.url,"Cache-Control":"private, no-store"}});
+          if (file.url)
+            return new Response(null, {
+              status: 302,
+              headers: {
+                Location: file.url,
+                "Cache-Control": "private, no-store",
+              },
+            });
           return new Response(file.bytes, {
             headers: {
               "Content-Type": file.mime,

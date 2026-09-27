@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { AppError, Store, string, units } from "./store";
 import { cents } from "./inventory";
 import { recognizePhoto } from "./ocr";
+import { parseExtractedPage, extractedPage } from "./ocr-vision";
 import {
   parseSupplierPage,
   packFrom,
@@ -20,7 +21,10 @@ const finite = (v: unknown) =>
 export { lineIssues, draftIssues } from "./intake-validation";
 import { lineIssues, draftIssues } from "./intake-validation";
 export class Intakes {
-  constructor(private store: Store, private photos?: PhotoStorage) {}
+  constructor(
+    private store: Store,
+    private photos?: PhotoStorage,
+  ) {}
   static async open(store: Store, photos?: PhotoStorage) {
     const instance = new Intakes(store, photos);
     await store.db.transaction(async () => {
@@ -36,56 +40,132 @@ export class Intakes {
       CREATE TABLE IF NOT EXISTS supplier_products(tin TEXT NOT NULL,code TEXT NOT NULL,product_id TEXT NOT NULL REFERENCES products(id),PRIMARY KEY(tin,code));
       CREATE INDEX IF NOT EXISTS supplier_product_lookup ON supplier_products(product_id);
       CREATE TABLE IF NOT EXISTS received_supplier_invoices(tin TEXT NOT NULL,number TEXT NOT NULL,intake_id TEXT NOT NULL REFERENCES intakes(id),PRIMARY KEY(tin,number));`);
-    const columns = await store.db.query("PRAGMA table_info(intake_pages)").all();
-    for (const name of ['object_key','preview_key']) if (!columns.some(c=>c.name===name)) await store.db.exec(`ALTER TABLE intake_pages ADD COLUMN ${name} TEXT`);
-    const intakeColumns=await store.db.query("PRAGMA table_info(intakes)").all();
-    if(!intakeColumns.some(c=>c.name==='processing_until')) await store.db.exec('ALTER TABLE intakes ADD COLUMN processing_until INTEGER NOT NULL DEFAULT 0');
-    if(!intakeColumns.some(c=>c.name==='photos_removed')) await store.db.exec('ALTER TABLE intakes ADD COLUMN photos_removed INTEGER NOT NULL DEFAULT 0');
-    await store.db.exec(`CREATE TABLE IF NOT EXISTS photo_gc(key TEXT PRIMARY KEY,after_ms INTEGER NOT NULL);
+    const columns = await store.db
+      .query("PRAGMA table_info(intake_pages)")
+      .all();
+    for (const name of ["object_key", "preview_key"])
+      if (!columns.some((c) => c.name === name))
+        await store.db.exec(`ALTER TABLE intake_pages ADD COLUMN ${name} TEXT`);
+    const intakeColumns = await store.db
+      .query("PRAGMA table_info(intakes)")
+      .all();
+    if (!intakeColumns.some((c) => c.name === "processing_until"))
+      await store.db.exec(
+        "ALTER TABLE intakes ADD COLUMN processing_until INTEGER NOT NULL DEFAULT 0",
+      );
+    if (!intakeColumns.some((c) => c.name === "photos_removed"))
+      await store.db.exec(
+        "ALTER TABLE intakes ADD COLUMN photos_removed INTEGER NOT NULL DEFAULT 0",
+      );
+    await store.db
+      .exec(`CREATE TABLE IF NOT EXISTS photo_gc(key TEXT PRIMARY KEY,after_ms INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS photo_uploads(id TEXT PRIMARY KEY,files TEXT NOT NULL,expires INTEGER NOT NULL,intake_id TEXT REFERENCES intakes(id));`);
   }
   async cleanupPhotos() {
-    if(!this.photos)return;
-    const pending=await this.store.db.query('SELECT key FROM photo_gc WHERE after_ms<=? LIMIT 100').all(Date.now());
-    if(pending.length){await this.photos.delete(pending.map(p=>p.key));
-      await this.store.db.transaction(async ()=>{for(const p of pending)await this.store.db.query('DELETE FROM photo_gc WHERE key=?').run(p.key);})();}
-    await this.store.db.query('DELETE FROM photo_uploads WHERE expires<?').run(Date.now()-86400000);
-  }
-  async prepareUpload(input:any) {
-    if(!this.photos) return {local:true};
-    const files=input.files;
-    if(!Array.isArray(files)||!files.length||files.length>20)fail('Upload 1 to 20 invoice photos');
-    let size=0;const id=randomUUID();
-    const entries: {name:string,size:number,mime:string,hash:string,key:string}[]=files.map((f:any)=>{
-      if(!Number.isInteger(f.size)||f.size<1||f.size>12*1024*1024||!['image/jpeg','image/png','image/webp'].includes(f.mime)||!/^[a-f0-9]{64}$/.test(f.hash))fail('Use JPG, PNG or WebP photos, up to 12 MB each');
-      size+=f.size;return {name:string(f.name,250),size:f.size,mime:f.mime,hash:f.hash,key:`staging/${id}/${randomUUID()}`};
-    });
-    if(size>60*1024*1024)fail('Use up to 60 MB per invoice');
-    if(new Set(entries.map(f=>f.hash)).size!==entries.length)fail('The same photo was selected twice');
-    await this.store.db.transaction(async()=>{
-      await this.store.db.query('INSERT INTO photo_uploads(id,files,expires) VALUES (?,?,?)').run(id,JSON.stringify(entries),Date.now()+3600000);
-      for(const f of entries) await this.store.db.query('INSERT INTO photo_gc VALUES (?,?)').run(f.key,Date.now()+86400000);
-    })();
-    return {id,files:await mapAsync(entries,async f=>({url:await this.photos!.uploadUrl(f.key,f.mime,f.hash),headers:{'Content-Type':f.mime,'x-amz-checksum-sha256':Buffer.from(f.hash,'hex').toString('base64')}}))};
-  }
-  async completeUpload(id:string) {
-    if(!this.photos)fail('Photo storage is not configured');
-    const session=await this.store.db.query('SELECT * FROM photo_uploads WHERE id=?').get(id);
-    if(!session)throw new AppError('Upload expired. Select the photos again',410);
-    if(session.intake_id)return this.get(session.intake_id);
-    if(session.expires<Date.now())throw new AppError('Upload expired. Select the photos again',410);
-    const files:File[]=[];
-    for(const entry of JSON.parse(session.files)){
-      const meta=await this.photos!.head(entry.key);
-      if(meta.size!==entry.size||meta.mime!==entry.mime)fail('Photo upload is incomplete. Try again');
-      const bytes=await this.photos!.read(entry.key);
-      if(createHash('sha256').update(bytes).digest('hex')!==entry.hash)fail('Photo upload is incomplete. Try again');
-      files.push(new File([bytes as BlobPart],entry.name,{type:entry.mime}));
+    if (!this.photos) return;
+    const pending = await this.store.db
+      .query("SELECT key FROM photo_gc WHERE after_ms<=? LIMIT 100")
+      .all(Date.now());
+    if (pending.length) {
+      await this.photos.delete(pending.map((p) => p.key));
+      await this.store.db.transaction(async () => {
+        for (const p of pending)
+          await this.store.db
+            .query("DELETE FROM photo_gc WHERE key=?")
+            .run(p.key);
+      })();
     }
-    const intake=await this.create(files);
-    await this.store.db.query('UPDATE photo_uploads SET intake_id=? WHERE id=?').run(intake.id,id);
-    for(const entry of JSON.parse(session.files))await this.store.db.query('UPDATE photo_gc SET after_ms=? WHERE key=?').run(Date.now(),entry.key);
-    await this.cleanupPhotos().catch(()=>{});
+    await this.store.db
+      .query("DELETE FROM photo_uploads WHERE expires<?")
+      .run(Date.now() - 86400000);
+  }
+  async prepareUpload(input: any) {
+    if (!this.photos) return { local: true };
+    const files = input.files;
+    if (!Array.isArray(files) || !files.length || files.length > 20)
+      fail("Upload 1 to 20 invoice photos");
+    let size = 0;
+    const id = randomUUID();
+    const entries: {
+      name: string;
+      size: number;
+      mime: string;
+      hash: string;
+      key: string;
+    }[] = files.map((f: any) => {
+      if (
+        !Number.isInteger(f.size) ||
+        f.size < 1 ||
+        f.size > 12 * 1024 * 1024 ||
+        !["image/jpeg", "image/png", "image/webp"].includes(f.mime) ||
+        !/^[a-f0-9]{64}$/.test(f.hash)
+      )
+        fail("Use JPG, PNG or WebP photos, up to 12 MB each");
+      size += f.size;
+      return {
+        name: string(f.name, 250),
+        size: f.size,
+        mime: f.mime,
+        hash: f.hash,
+        key: `staging/${id}/${randomUUID()}`,
+      };
+    });
+    if (size > 60 * 1024 * 1024) fail("Use up to 60 MB per invoice");
+    if (new Set(entries.map((f) => f.hash)).size !== entries.length)
+      fail("The same photo was selected twice");
+    await this.store.db.transaction(async () => {
+      await this.store.db
+        .query("INSERT INTO photo_uploads(id,files,expires) VALUES (?,?,?)")
+        .run(id, JSON.stringify(entries), Date.now() + 3600000);
+      for (const f of entries)
+        await this.store.db
+          .query("INSERT INTO photo_gc VALUES (?,?)")
+          .run(f.key, Date.now() + 86400000);
+    })();
+    return {
+      id,
+      files: await mapAsync(entries, async (f) => ({
+        url: await this.photos!.uploadUrl(f.key, f.mime, f.hash),
+        headers: {
+          "Content-Type": f.mime,
+          "x-amz-checksum-sha256": Buffer.from(f.hash, "hex").toString(
+            "base64",
+          ),
+        },
+      })),
+    };
+  }
+  async completeUpload(id: string) {
+    if (!this.photos) fail("Photo storage is not configured");
+    const session = await this.store.db
+      .query("SELECT * FROM photo_uploads WHERE id=?")
+      .get(id);
+    if (!session)
+      throw new AppError("Upload expired. Select the photos again", 410);
+    if (session.intake_id) return this.get(session.intake_id);
+    if (session.expires < Date.now())
+      throw new AppError("Upload expired. Select the photos again", 410);
+    const files: File[] = [];
+    for (const entry of JSON.parse(session.files)) {
+      const meta = await this.photos!.head(entry.key);
+      if (meta.size !== entry.size || meta.mime !== entry.mime)
+        fail("Photo upload is incomplete. Try again");
+      const bytes = await this.photos!.read(entry.key);
+      if (createHash("sha256").update(bytes).digest("hex") !== entry.hash)
+        fail("Photo upload is incomplete. Try again");
+      files.push(
+        new File([bytes as BlobPart], entry.name, { type: entry.mime }),
+      );
+    }
+    const intake = await this.create(files);
+    await this.store.db
+      .query("UPDATE photo_uploads SET intake_id=? WHERE id=?")
+      .run(intake.id, id);
+    for (const entry of JSON.parse(session.files))
+      await this.store.db
+        .query("UPDATE photo_gc SET after_ms=? WHERE key=?")
+        .run(Date.now(), entry.key);
+    await this.cleanupPhotos().catch(() => {});
     return intake;
   }
   async list() {
@@ -123,9 +203,15 @@ export class Intakes {
       )
       .get(page, id)) as any;
     if (!r) throw new AppError("Photos are removed after approval", 410);
-    const objectKey=original ? r.object_key : (r.preview_key || r.object_key);
-    if(objectKey && this.photos)return {url:await this.photos.downloadUrl(objectKey),bytes:null,mime:r.mime};
-    return {url:null,
+    const objectKey = original ? r.object_key : r.preview_key || r.object_key;
+    if (objectKey && this.photos)
+      return {
+        url: await this.photos.downloadUrl(objectKey),
+        bytes: null,
+        mime: r.mime,
+      };
+    return {
+      url: null,
       bytes: original || !r.preview ? r.raw : r.preview,
       mime: original || !r.preview ? r.mime : "image/jpeg",
     };
@@ -184,16 +270,23 @@ export class Intakes {
       lines: [],
       headerReviewed: false,
     };
-    if(this.photos)for(const f of uploads){
-      const objectKey=`drafts/${id}/${f.id}`;
-      await this.store.db.query('INSERT INTO photo_gc VALUES (?,?)').run(objectKey,Date.now()+86400000);
-      await this.photos.put(objectKey,f.raw,f.mime);
-    }
+    if (this.photos)
+      for (const f of uploads) {
+        const objectKey = `drafts/${id}/${f.id}`;
+        await this.store.db
+          .query("INSERT INTO photo_gc VALUES (?,?)")
+          .run(objectKey, Date.now() + 86400000);
+        await this.photos.put(objectKey, f.raw, f.mime);
+      }
     const chosen = await this.store.db.transaction(async () => {
       // Recheck under the cross-instance write lock, including overlapping upload retries.
-      const prior=await this.store.db.query("SELECT intake_id,group_concat(hash,':') hashes FROM (SELECT intake_id,hash FROM intake_pages ORDER BY hash) GROUP BY intake_id").all();
-      const duplicate=prior.find(r=>r.hashes===signature);
-      if(duplicate)return duplicate.intake_id as string;
+      const prior = await this.store.db
+        .query(
+          "SELECT intake_id,group_concat(hash,':') hashes FROM (SELECT intake_id,hash FROM intake_pages ORDER BY hash) GROUP BY intake_id",
+        )
+        .all();
+      const duplicate = prior.find((r) => r.hashes === signature);
+      if (duplicate) return duplicate.intake_id as string;
 
       await this.store.db
         .query("INSERT INTO intakes(id,draft,created) VALUES (?,?,?)")
@@ -205,9 +298,22 @@ export class Intakes {
             .query(
               "INSERT INTO intake_pages(id,intake_id,position,filename,mime,hash,raw,object_key) VALUES (?,?,?,?,?,?,?,?)",
             )
-            .run(f.id, id, i, f.filename, f.mime, f.hash, this.photos ? new Uint8Array() : f.raw, this.photos ? `drafts/${id}/${f.id}` : null),
+            .run(
+              f.id,
+              id,
+              i,
+              f.filename,
+              f.mime,
+              f.hash,
+              this.photos ? new Uint8Array() : f.raw,
+              this.photos ? `drafts/${id}/${f.id}` : null,
+            ),
       );
-      if(this.photos)for(const f of uploads)await this.store.db.query('DELETE FROM photo_gc WHERE key=?').run(`drafts/${id}/${f.id}`);
+      if (this.photos)
+        for (const f of uploads)
+          await this.store.db
+            .query("DELETE FROM photo_gc WHERE key=?")
+            .run(`drafts/${id}/${f.id}`);
       return id;
     })();
     return await this.get(chosen);
@@ -218,37 +324,87 @@ export class Intakes {
       fail("Received invoices cannot be processed again");
     if (before.draft.lines.length)
       fail("This draft is already processed. Review its extracted items");
-    const leaseUntil=Date.now()+330000;
-    const lease=await this.store.db.query("UPDATE intakes SET processing_until=? WHERE id=? AND processing_until<? AND status='draft' AND revision=?").run(leaseUntil,id,Date.now(),before.revision);
-    if(!lease.changes)throw new AppError('This invoice is being processed. Try again shortly',409);
+    const leaseUntil = Date.now() + 330000;
+    const lease = await this.store.db
+      .query(
+        "UPDATE intakes SET processing_until=? WHERE id=? AND processing_until<? AND status='draft' AND revision=?",
+      )
+      .run(leaseUntil, id, Date.now(), before.revision);
+    if (!lease.changes)
+      throw new AppError(
+        "This invoice is being processed. Try again shortly",
+        409,
+      );
     try {
       const pages = (await this.store.db
         .query("SELECT * FROM intake_pages WHERE intake_id=? ORDER BY position")
         .all(id)) as any[];
       const parsed = [];
-      let processedNew=false;
+      let processedNew = false;
       for (const p of pages) {
-        if(!p.ocr && processedNew)return {...await this.get(id),processing:false,more:true};
+        if (!p.ocr && processedNew)
+          return { ...(await this.get(id)), processing: false, more: true };
         try {
-          const result = p.ocr
-            ? { blocks: JSON.parse(p.ocr) }
-            : await recognizePhoto(p.object_key && this.photos ? await this.photos.read(p.object_key) : new Uint8Array(p.raw));
+          const cached = p.ocr ? JSON.parse(p.ocr) : null;
+          const result = cached
+            ? Array.isArray(cached)
+              ? { blocks: cached }
+              : {
+                  blocks: cached.blocks,
+                  extracted: extractedPage.parse(cached.extracted),
+                }
+            : await recognizePhoto(
+                p.object_key && this.photos
+                  ? await this.photos.read(p.object_key)
+                  : new Uint8Array(p.raw),
+              );
+          const page =
+            "extracted" in result && result.extracted
+              ? parseExtractedPage(result.extracted, p.position)
+              : parseSupplierPage(result.blocks, p.position);
+          if (!page.lines.length)
+            throw new AppError(
+              "No items could be read. Use a clearer photo and try again.",
+              422,
+            );
           if ("preview" in result) {
-            processedNew=true;
-            const previewKey=this.photos ? `drafts/${id}/${p.id}-preview` : null;
-            if(previewKey){
-              await this.store.db.query('INSERT INTO photo_gc VALUES (?,?) ON CONFLICT(key) DO UPDATE SET after_ms=excluded.after_ms').run(previewKey,Date.now()+86400000);
-              await this.photos!.put(previewKey,result.preview,'image/jpeg');
+            processedNew = true;
+            const previewKey = this.photos
+              ? `drafts/${id}/${p.id}-preview`
+              : null;
+            if (previewKey) {
+              await this.store.db
+                .query(
+                  "INSERT INTO photo_gc VALUES (?,?) ON CONFLICT(key) DO UPDATE SET after_ms=excluded.after_ms",
+                )
+                .run(previewKey, Date.now() + 86400000);
+              await this.photos!.put(previewKey, result.preview, "image/jpeg");
             }
-            await this.store.db.transaction(async()=>{
-              await this.store.db.query("UPDATE intake_pages SET preview=?,preview_key=?,ocr=?,error='' WHERE id=?").run(this.photos ? null : result.preview,previewKey,JSON.stringify(result.blocks),p.id);
-              if(previewKey)await this.store.db.query('DELETE FROM photo_gc WHERE key=?').run(previewKey);
+            await this.store.db.transaction(async () => {
+              await this.store.db
+                .query(
+                  "UPDATE intake_pages SET preview=?,preview_key=?,ocr=?,error='' WHERE id=?",
+                )
+                .run(
+                  this.photos ? null : result.preview,
+                  previewKey,
+                  JSON.stringify(
+                    "extracted" in result && result.extracted
+                      ? { blocks: result.blocks, extracted: result.extracted }
+                      : result.blocks,
+                  ),
+                  p.id,
+                );
+              if (previewKey)
+                await this.store.db
+                  .query("DELETE FROM photo_gc WHERE key=?")
+                  .run(previewKey);
             })();
           }
-          parsed.push(parseSupplierPage(result.blocks, p.position));
+          parsed.push(page);
         } catch (error) {
           await this.store.db
-            .query("UPDATE intake_pages SET error=? WHERE id=?")
+            .query("UPDATE intake_pages SET error=?,ocr=NULL WHERE id=?")
             .run(String(error instanceof Error ? error.message : error), p.id);
           throw error;
         }
@@ -283,11 +439,15 @@ export class Intakes {
         .run(JSON.stringify(draft), id, before.revision);
       return await this.get(id);
     } finally {
-      await this.store.db.query("UPDATE intakes SET processing_until=0 WHERE id=? AND processing_until=?").run(id,leaseUntil);
+      await this.store.db
+        .query(
+          "UPDATE intakes SET processing_until=0 WHERE id=? AND processing_until=?",
+        )
+        .run(id, leaseUntil);
     }
   }
-  async save(id: string,input:any) {
-    return this.store.db.transaction(async()=>this.saveLocked(id,input))();
+  async save(id: string, input: any) {
+    return this.store.db.transaction(async () => this.saveLocked(id, input))();
   }
   private async saveLocked(id: string, input: any) {
     const existing = await this.get(id);
@@ -346,12 +506,17 @@ export class Intakes {
       if (l.productId && !(await this.store.product(l.productId)))
         fail("Select an active product");
     }
-    const updated=await this.store.db.query("UPDATE intakes SET draft=?,revision=revision+1 WHERE id=? AND revision=? AND status='draft' AND processing_until<?").run(JSON.stringify(d),id,existing.revision,Date.now());
-    if(!updated.changes)throw new AppError('This draft changed. Reopen it before saving',409);
+    const updated = await this.store.db
+      .query(
+        "UPDATE intakes SET draft=?,revision=revision+1 WHERE id=? AND revision=? AND status='draft' AND processing_until<?",
+      )
+      .run(JSON.stringify(d), id, existing.revision, Date.now());
+    if (!updated.changes)
+      throw new AppError("This draft changed. Reopen it before saving", 409);
     return await this.get(id);
   }
   async receive(id: string, revision: number) {
-    const received=await this.store.db.transaction(async () => {
+    const received = await this.store.db.transaction(async () => {
       const intake = await this.get(id);
       if (intake.status === "received") return intake;
       if (intake.revision !== revision)
@@ -443,13 +608,30 @@ export class Intakes {
           JSON.stringify({ ...d, allocatedDiscountCents: shares }),
           id,
         );
-      const photos=await this.store.db.query('SELECT object_key,preview_key FROM intake_pages WHERE intake_id=?').all(id);
-      for(const photo of photos)for(const objectKey of [photo.object_key,photo.preview_key])if(objectKey)await this.store.db.query('INSERT INTO photo_gc VALUES (?,?) ON CONFLICT(key) DO UPDATE SET after_ms=excluded.after_ms').run(objectKey,Date.now());
-      await this.store.db.query('UPDATE intake_pages SET raw=?,preview=NULL,ocr=NULL,object_key=NULL,preview_key=NULL WHERE intake_id=?').run(new Uint8Array(),id);
-      await this.store.db.query('UPDATE intakes SET photos_removed=1 WHERE id=?').run(id);
+      const photos = await this.store.db
+        .query(
+          "SELECT object_key,preview_key FROM intake_pages WHERE intake_id=?",
+        )
+        .all(id);
+      for (const photo of photos)
+        for (const objectKey of [photo.object_key, photo.preview_key])
+          if (objectKey)
+            await this.store.db
+              .query(
+                "INSERT INTO photo_gc VALUES (?,?) ON CONFLICT(key) DO UPDATE SET after_ms=excluded.after_ms",
+              )
+              .run(objectKey, Date.now());
+      await this.store.db
+        .query(
+          "UPDATE intake_pages SET raw=?,preview=NULL,ocr=NULL,object_key=NULL,preview_key=NULL WHERE intake_id=?",
+        )
+        .run(new Uint8Array(), id);
+      await this.store.db
+        .query("UPDATE intakes SET photos_removed=1 WHERE id=?")
+        .run(id);
       return await this.get(id);
     })();
-    await this.cleanupPhotos().catch(()=>{});
+    await this.cleanupPhotos().catch(() => {});
     return received;
   }
 }

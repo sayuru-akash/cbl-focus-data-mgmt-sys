@@ -138,7 +138,7 @@ Stock in has one intake path: upload or photograph every page of one supplier in
 - Every item and page must be checked before posting. Totals must reconcile exactly. Re-uploaded photo sets reopen the existing record; supplier/TIN invoice uniqueness and atomic posting prevent stock from being added twice. Stale review revisions cannot overwrite newer changes.
 - Historical manual stock receipts remain read-only. Use invoice photos for new deliveries. Stock corrections require a reason and retain movement history.
 
-Photo OCR currently runs locally on macOS using Apple Vision, Swift command-line tools and Tesseract orientation detection (`tesseract` must be available on PATH). Photos do not leave this computer. A non-Mac deployment needs a compatible OCR worker before photo processing can be offered there. OCR is assisted extraction, not an automatic approval: uncertain codes, totals or page numbers require correction against the original.
+Local macOS OCR uses Apple Vision and Tesseract orientation detection. Cloud `OCR_ENGINE=tesseract` uses bundled English recognition, but is not accurate enough on the supplied faint dot-matrix invoices. Optional `OCR_ENGINE=cloudflare` sends invoice images to Workers AI using server-only `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_TOKEN` and `CLOUDFLARE_AI_MODEL`. Model access, billing approval and recognition quality must be verified before enabling it. Original photos and previews are held privately in R2 while a cloud draft is pending, then removed after approval. OCR never approves stock: codes, totals, pack sizes and page numbers must be checked against the photo.
 
 ## Runtime and development
 
