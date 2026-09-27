@@ -51,7 +51,7 @@ async function prepare(s: Store, text: string, opening = 1000) {
         costPrice: 1,
       }));
   }
-  await s.saveBill(id, b);
+  await s.saveBill(id, { ...b, payment_type: "cash" });
   return await s.bill(id);
 }
 test("all observed bills post correct sale/free/return movements and retries change nothing", async () => {
@@ -162,7 +162,7 @@ test("mixed returns use matching MRP, support credit totals, retain FIFO and nev
     const b = await s.reviewBill(id);
     expect(b.receipt.total).toBe(-882);
     expect(b.receipt.warnings).toEqual([]);
-    await s.saveBill(id, b);
+    await s.saveBill(id, { ...b, payment_type: "cash" });
     await Promise.all([s.decide(id, "accepted"), s.decide(id, "accepted")]);
     expect((await s.product(p!)).stock).toBe(100000);
     expect(

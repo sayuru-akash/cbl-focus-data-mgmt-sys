@@ -21,7 +21,12 @@ async function bill(s: Store, items: any[], number = "B1") {
     "text/plain",
     "Test",
   );
-  await s.saveBill(id, { number, shop: "Test shop", items });
+  await s.saveBill(id, {
+    number,
+    shop: "Test shop",
+    items,
+    payment_type: "cash",
+  });
   return id;
 }
 describe("Stock ledger", () => {

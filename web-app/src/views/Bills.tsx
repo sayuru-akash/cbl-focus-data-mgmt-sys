@@ -465,6 +465,7 @@ export default function BillReview({
               className="primary"
               disabled={
                 busy ||
+                !bill.payment_type ||
                 reviewErrors.length > 0 ||
                 !bill.items.length ||
                 bill.items.some(
@@ -487,6 +488,7 @@ export default function BillReview({
           <label className="bill-payment-field">
             Payment type
             <select
+              required
               value={bill.payment_type || ""}
               disabled={busy}
               onChange={(e) =>
@@ -508,6 +510,9 @@ export default function BillReview({
                 </option>
               ))}
             </select>
+            {editable && !bill.payment_type && (
+              <small className="muted">Required to accept</small>
+            )}
           </label>
         )}
 

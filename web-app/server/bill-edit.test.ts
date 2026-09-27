@@ -54,7 +54,7 @@ test("draft edits persist customer details, quantities, prices, discounts and ca
     b.items = [
       { productId, quantity: 3, mrp: 25, sellingPrice: 22, sourceLine: 0 },
     ];
-    await s.saveBill(id, b);
+    await s.saveBill(id, { ...b, payment_type: "cash" });
     const saved = await s.bill(id);
     expect(saved.receipt.total).toBe(60);
     expect(saved.receipt.edited).toBe(true);
@@ -90,7 +90,7 @@ test("draft edits persist customer details, quantities, prices, discounts and ca
     copy.receipt.number = copy.number;
     copy.receipt.reviewed = true;
     copy.items[0].productId = productId;
-    await s.saveBill(again.id, copy);
+    await s.saveBill(again.id, { ...copy, payment_type: "cash" });
     await expect(s.decide(again.id, "accepted")).rejects.toThrow(
       "original invoice has already been accepted",
     );
@@ -123,7 +123,7 @@ test("adding/removing lines and changing sale/free/fresh/market types changes th
       quantity: l.quantity,
       sourceLine,
     }));
-    await s.saveBill(id, b);
+    await s.saveBill(id, { ...b, payment_type: "cash" });
     expect((await s.product(p!)).stock).toBe(10000);
     expect((await s.bill(id)).receipt.total).toBe(-144);
     await s.decide(id, "accepted");
@@ -158,7 +158,7 @@ test("restore recovers the original after saved edits and bad pricing cannot be 
     b.shop = "Edited";
     b.receipt.items = [];
     b.items = [];
-    await s.saveBill(id, b);
+    await s.saveBill(id, { ...b, payment_type: "cash" });
     const edited = await s.bill(id);
     expect(edited.items).toHaveLength(0);
     expect(edited.receipt.total).toBe(0);

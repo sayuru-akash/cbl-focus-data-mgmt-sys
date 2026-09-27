@@ -243,6 +243,7 @@ export async function prepareSample() {
         bill.items.forEach((item: any, index: number) => {
           item.productId = lines[index]!.id;
         });
+        bill.payment_type = ["cash", "cheque", "credit"][i % 3];
         await store.saveBill(id, bill);
         if (i < 48) await store.decide(id, "accepted");
         else if (i < 56) await store.decide(id, "rejected");

@@ -128,7 +128,7 @@ test("only approved bills create or update customers; outlet ID preserves identi
     });
     const approve = async (id: string) => {
       const b = await store.reviewBill(id);
-      await store.saveBill(id, b);
+      await store.saveBill(id, { ...b, payment_type: "cash" });
       await store.decide(id, "accepted");
     };
     await approve(first.id);
@@ -207,7 +207,7 @@ test("accepted mappings carry forward by printed name and unit, never by price a
         mrp: source.mrp,
       });
     }
-    await store.saveBill(first.id, bill);
+    await store.saveBill(first.id, { ...bill, payment_type: "cash" });
     await store.decide(first.id, "accepted");
     const second = await store.ingest(
       Buffer.from(receiptText.replace("10001", "10002")),
@@ -295,6 +295,9 @@ test("received bill stays pending and cannot deduct unmapped stock; differing re
   try {
     const raw = Buffer.from(receiptText),
       { id } = await store.ingest(raw, "capture", "", "Test");
+    await store.db
+      .query("UPDATE bills SET payment_type='cash' WHERE id=?")
+      .run(id);
     const bill = await store.bill(id);
     expect(bill.number).toBe("10001");
     expect(bill.items).toHaveLength(3);
@@ -303,7 +306,7 @@ test("received bill stays pending and cannot deduct unmapped stock; differing re
       "Choose a stock item",
     );
     expect(Buffer.from(bill.raw)).toEqual(raw);
-    await store.saveBill(id, bill);
+    await store.saveBill(id, { ...bill, payment_type: "cash" });
     const reprint = await store.ingest(
       Buffer.from(receiptText + "\n"),
       "reprint",

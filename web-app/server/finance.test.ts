@@ -154,7 +154,7 @@ test("deleting an accepted bill removes finance values and restores stock; rejec
     );
     await s.db
       .query(
-        "UPDATE bills SET number=?,shop=?,receipt=?,original_receipt=?,items=? WHERE id=?",
+        "UPDATE bills SET payment_type='cash',number=?,shop=?,receipt=?,original_receipt=?,items=? WHERE id=?",
       )
       .run(
         "FIN-1",

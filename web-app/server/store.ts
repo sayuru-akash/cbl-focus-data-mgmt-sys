@@ -727,6 +727,8 @@ export class Store {
           fail("This original invoice has already been accepted");
         const reviewErrors = billReviewErrors(b);
         if (reviewErrors.length) fail(reviewErrors[0]);
+        if (!isPaymentType(b.payment_type))
+          fail("Choose Cash, Cheque, or Credit before accepting");
         await this.inventory.consume(b);
         await this.approveCustomer(b);
       }

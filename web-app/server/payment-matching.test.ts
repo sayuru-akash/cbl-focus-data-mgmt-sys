@@ -285,3 +285,41 @@ test("accepted payment can change after ten days with audited revisions and no l
     await s.db.close();
   }
 });
+
+test("acceptance requires a selected payment type while incomplete drafts can still save", async () => {
+  const s = await openTestStore();
+  try {
+    const productId = await s.saveProduct({
+      name: "Item",
+      unit: "PKT",
+      stock: 10,
+      mrp: 20,
+    });
+    const { id } = await s.ingest(
+      Buffer.from("mandatory payment"),
+      "print",
+      "",
+      "Test",
+    );
+    await s.saveBill(id, {
+      ...(await s.bill(id)),
+      number: "REQUIRED",
+      shop: "Shop",
+      items: [{ productId, quantity: 1, mrp: 20 }],
+    });
+    const before = await s.bill(id);
+    expect(before.payment_type).toBeNull();
+    await expect(s.decide(id, "accepted", before.revision)).rejects.toThrow(
+      "Choose Cash, Cheque, or Credit before accepting",
+    );
+    expect((await s.bill(id)).revision).toBe(before.revision);
+    expect((await s.bill(id)).status).toBe("pending");
+    expect((await s.product(productId!)).stock).toBe(10000);
+    await s.saveBill(id, { ...before, payment_type: "credit" });
+    await s.decide(id, "accepted", (await s.bill(id)).revision);
+    expect((await s.bill(id)).payment_type).toBe("credit");
+    expect((await s.product(productId!)).stock).toBe(9000);
+  } finally {
+    await s.db.close();
+  }
+});

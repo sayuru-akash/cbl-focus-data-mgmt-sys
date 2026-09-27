@@ -38,6 +38,7 @@ async function sale(
 ) {
   const { id } = await s.ingest(Buffer.from(number), number, "", "Test");
   await s.saveBill(id, {
+    payment_type: "cash",
     number,
     shop: "Test",
     items: [{ productId, quantity, mrp, sellingPrice: 18 }, ...extra],

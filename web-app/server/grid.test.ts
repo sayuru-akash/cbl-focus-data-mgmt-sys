@@ -107,6 +107,7 @@ test("bill status, dates and customer scope remain combined", async () => {
       "test",
     );
     await s.saveBill(id, {
+      payment_type: "cash",
       number: `B${i}`,
       shop: "Shop",
       items: [{ productId: p, quantity: 1 }],
@@ -148,6 +149,7 @@ test("customer dates and counts use approved bills, excluding later pending prin
   ] as const) {
     const { id } = await s.ingest(Buffer.from(number), number, "", "Test");
     await s.saveBill(id, {
+      payment_type: "cash",
       number,
       shop: "Shop",
       items: [{ productId: p, quantity: 1 }],

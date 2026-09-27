@@ -30,7 +30,7 @@ async function draft(
     mrp: 20,
     sellingPrice: line.rate,
   }));
-  await s.saveBill(id, b);
+  await s.saveBill(id, { ...b, payment_type: "cash" });
   return { ...(await s.bill(id)), raw };
 }
 test("deleting accepted mixed bills restores exact batches, removes bill data and is retry-safe", async () => {
