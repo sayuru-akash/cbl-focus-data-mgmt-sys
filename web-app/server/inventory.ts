@@ -1,3 +1,4 @@
+import { printedIdentity } from "./product-matching";
 import { lineKind, billReviewErrors } from "./receipt";
 import { mapAsync } from "./db";
 import { randomUUID } from "node:crypto";
@@ -128,22 +129,36 @@ export class Inventory {
         .run(cents(input.costPrice), cents(input.mrp), lotId);
     })();
   }
+  async matcher() {
+    // Load once per bill review; no persistent cache that could hide stock edits.
+    const products = await this.store.db
+      .query("SELECT id,name,unit,match_name FROM products WHERE archived=0")
+      .all();
+    const aliases = await this.store.db
+      .query("SELECT name,unit,product_id FROM product_aliases")
+      .all();
+    return (name: string, unit: string): string => {
+      const eligible = products.filter(
+        (p) => normalize(p.unit) === normalize(unit),
+      );
+      const alias = aliases.find(
+        (a) => a.name === normalize(name) && a.unit === normalize(unit),
+      );
+      if (alias && eligible.some((p) => p.id === alias.product_id))
+        return alias.product_id;
+      const exact = eligible.filter(
+        (p) => p.match_name === productIdentity(name),
+      );
+      if (exact.length) return exact.length === 1 ? exact[0]!.id : "";
+      const identity = printedIdentity(name);
+      const normalized = eligible.filter(
+        (p) => printedIdentity(p.name) === identity,
+      );
+      return normalized.length === 1 ? normalized[0]!.id : "";
+    };
+  }
   async match(name: string, unit: string) {
-    const remembered = (await this.store.db
-      .query(
-        "SELECT p.id FROM product_aliases a JOIN products p ON p.id=a.product_id WHERE a.name=? AND a.unit=? AND upper(p.unit)=? AND p.archived=0",
-      )
-      .get(normalize(name), normalize(unit), normalize(unit))) as any;
-    if (remembered) return remembered.id as string;
-    // Identity is independent of price and available quantity. Ambiguous codes stay unselected.
-    const candidates = (await this.store.db
-      .query(
-        "SELECT id FROM products WHERE match_name=? AND upper(unit)=? AND archived=0 LIMIT 2",
-      )
-      .all(productIdentity(name), normalize(unit))) as {
-      id: string;
-    }[];
-    return candidates.length === 1 ? candidates[0]!.id : "";
+    return (await this.matcher())(name, unit);
   }
   async nextSku() {
     let n = Number((await this.store.setting("skuSequence")) || 0),

@@ -17,6 +17,12 @@ import {
   categoryDifference,
   discountCategories,
 } from "../../server/discount-categories";
+import PaymentBadge from "../components/PaymentBadge";
+import {
+  paymentTypes,
+  paymentLabels,
+  type PaymentType,
+} from "../../server/payment";
 import ProductPicker from "../components/ProductPicker";
 import { api, date, type Bill, type Product } from "../api";
 import { Empty, SearchBox, ErrorText, Modal } from "../components/UI";
@@ -38,7 +44,14 @@ const money = (n: number) =>
 export type BillNavigationGuard = ((next: () => void) => void) | null;
 const unsavedBills = new Map<string, Bill>();
 const editableValue = (b: Bill) =>
-  JSON.stringify([b.number, b.shop, b.items, b.note, b.receipt]);
+  JSON.stringify([
+    b.number,
+    b.shop,
+    b.items,
+    b.note,
+    b.receipt,
+    b.payment_type,
+  ]);
 
 export default function BillReview({
   id,
@@ -253,6 +266,33 @@ export default function BillReview({
         })),
     });
   }
+  async function changePayment(payment: PaymentType) {
+    if (!bill || busy) return;
+    setBusy(true);
+    setError("");
+    setSaved("");
+    try {
+      const update = await api<{ revision: number; payment_type: PaymentType }>(
+        `/bills/${id}/payment`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            payment_type: payment,
+            revision: bill.revision,
+          }),
+        },
+      );
+      apply({ ...bill, ...update });
+      setSaved("Payment type updated.");
+      onUpdate();
+    } catch (e: any) {
+      setError(e.message);
+      const latest = await api<Bill>(`/bills/${id}`).catch(() => null);
+      if (latest) apply(latest);
+    } finally {
+      setBusy(false);
+    }
+  }
   async function act(action: "save" | "accept" | "reject") {
     if (!bill) return;
     setBusy(true);
@@ -389,6 +429,7 @@ export default function BillReview({
           </small>
         </div>
         <span className={"status " + bill.status}>{bill.status}</span>
+        <PaymentBadge value={bill.payment_type} />
         <button
           className="icon-button danger-text"
           aria-label="Delete bill"
@@ -442,6 +483,40 @@ export default function BillReview({
         </div>
       )}
       <div className="detail-body">
+        {(editable || bill.status === "accepted") && (
+          <label className="bill-payment-field">
+            Payment type
+            <select
+              value={bill.payment_type || ""}
+              disabled={busy}
+              onChange={(e) =>
+                editable
+                  ? setBill({
+                      ...bill,
+                      payment_type: (e.target.value ||
+                        null) as PaymentType | null,
+                    })
+                  : void changePayment(e.target.value as PaymentType)
+              }
+            >
+              <option value="" disabled={!editable}>
+                Select type
+              </option>
+              {paymentTypes.map((type) => (
+                <option key={type} value={type}>
+                  {paymentLabels[type]}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {!editable && <ErrorText message={error} />}
+        {!editable && saved && (
+          <p className="notice" role="status">
+            {saved}
+          </p>
+        )}
         {remote && (
           <div className="notice" role="status">
             This bill changed in another window.{" "}
@@ -815,6 +890,7 @@ export default function BillReview({
                         : "Choose stock item"
                     }
                     showStock={kind === "sale" || kind === "free"}
+                    suggestedName={original?.name}
                     unit={original?.unit}
                     mrp={original?.mrp ?? item.mrp}
                     disabled={!editable || busy}
@@ -946,8 +1022,8 @@ export default function BillReview({
             onChange={(e) => setBill({ ...bill, note: e.target.value })}
           />
         </label>
-        <ErrorText message={error} />
-        {saved && (
+        {editable && <ErrorText message={error} />}
+        {editable && saved && (
           <p className="notice" role="status">
             {saved}
           </p>

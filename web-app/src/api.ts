@@ -63,6 +63,7 @@ export type Purchase = {
   created?: string;
 };
 export type Bill = {
+  payment_type?: import("../server/payment").PaymentType | null;
   revision: number;
   id: string;
   filename: string;

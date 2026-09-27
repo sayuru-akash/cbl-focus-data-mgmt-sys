@@ -1,3 +1,4 @@
+import { productRelevance, printedIdentity } from "./product-matching";
 import { bridgeDownload } from "./bridge-download";
 import { PhotoStorage } from "./photos";
 import { mapAsync } from "./db";
@@ -238,30 +239,47 @@ async function handleApiResponse(
           maxFileMB: 10,
         });
       if (path === "/api/product-options" && method === "GET") {
-        const words = string(url.searchParams.get("q") || "", 200)
-          .split(/\s+/)
-          .filter(Boolean)
-          .slice(0, 12);
+        const query = string(url.searchParams.get("q") || "", 200);
+        const suggested = string(url.searchParams.get("suggested") || "", 200);
         const unit = url.searchParams.get("unit")
           ? string(url.searchParams.get("unit"), 30).toUpperCase()
           : null;
         const mrp = url.searchParams.has("mrp")
           ? cents(Number(url.searchParams.get("mrp")))
           : null;
-        const where = words.map(
-          () =>
-            "(p.name LIKE ? ESCAPE '\\' OR p.sku LIKE ? ESCAPE '\\' OR EXISTS(SELECT 1 FROM supplier_products sp WHERE sp.product_id=p.id AND sp.code LIKE ? ESCAPE '\\'))",
-        );
-        const args = words.flatMap((word) => {
-          const term = "%" + word.replace(/[\\%_]/g, "\\$&") + "%";
-          return [term, term, term];
-        });
+        const rows = await store.db
+          .query(
+            `SELECT p.id,p.name,p.sku,p.unit,p.stock/1000.0 stock,
+          (SELECT group_concat(code,' ') FROM supplier_products sp WHERE sp.product_id=p.id) codes,
+          COALESCE((SELECT SUM(l.remaining)/1000.0 FROM stock_lots l WHERE l.product_id=p.id AND (? IS NULL OR l.mrp=?)),0) matchingStock
+          FROM products p WHERE p.archived=0 AND (? IS NULL OR upper(p.unit)=?)`,
+          )
+          .all(mrp, mrp, unit, unit);
+        const ranked = rows.map((p) => ({
+          ...p,
+          score: productRelevance(query || suggested, p.name),
+        }));
+        const words = printedIdentity(query).split(" ").filter(Boolean);
         return json(
-          await store.db
-            .query(
-              `SELECT p.id,p.name,p.sku,p.unit,p.stock/1000.0 stock,COALESCE((SELECT SUM(l.remaining)/1000.0 FROM stock_lots l WHERE l.product_id=p.id AND (? IS NULL OR l.mrp=?)),0) matchingStock FROM products p WHERE p.archived=0 AND (? IS NULL OR upper(p.unit)=?) ${where.length ? "AND " + where.join(" AND ") : ""} ORDER BY p.name COLLATE NOCASE,p.id LIMIT 30`,
+          ranked
+            .filter(
+              (p) =>
+                !query ||
+                `${p.sku} ${p.codes || ""}`
+                  .toUpperCase()
+                  .includes(query.toUpperCase()) ||
+                words.every((w) => printedIdentity(p.name).includes(w)) ||
+                p.score >= 85,
             )
-            .all(mrp, mrp, unit, unit, ...args),
+            .sort(
+              (a, b) =>
+                b.score - a.score ||
+                Number(b.matchingStock > 0) - Number(a.matchingStock > 0) ||
+                a.name.localeCompare(b.name) ||
+                a.id.localeCompare(b.id),
+            )
+            .slice(0, 30)
+            .map(({ score, codes, ...p }) => p),
         );
       }
       const option = path.match(/^\/api\/product-options\/([^/]+)$/);
@@ -464,10 +482,16 @@ async function handleApiResponse(
         );
       }
       const bill = path.match(
-        /^\/api\/bills\/([^/]+)(?:\/(raw|accept|reject|availability|restore))?$/,
+        /^\/api\/bills\/([^/]+)(?:\/(raw|accept|reject|availability|restore|payment))?$/,
       );
       if (bill) {
         const [, id, action] = bill;
+        if (action === "payment" && method === "PATCH") {
+          const input = await req.json();
+          return json(
+            await store.setBillPayment(id, input.payment_type, input.revision),
+          );
+        }
         if (action === "restore" && method === "POST") {
           const input = await req.json();
           if (!Number.isInteger(input.revision))

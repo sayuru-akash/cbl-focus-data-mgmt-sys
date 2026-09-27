@@ -15,6 +15,7 @@ export default function ProductPicker({
   unit,
   mrp,
   showStock = false,
+  suggestedName = "",
 }: {
   value: string;
   onChange: (id: string) => void;
@@ -25,6 +26,7 @@ export default function ProductPicker({
   unit?: string;
   mrp?: number | null;
   showStock?: boolean;
+  suggestedName?: string;
 }) {
   const [open, setOpen] = useState(false),
     [search, setSearch] = useState(""),
@@ -41,10 +43,10 @@ export default function ProductPicker({
     refetchInterval: showStock ? 10000 : false,
   });
   const options = useQuery({
-    queryKey: ["product-options", query, packetsOnly, unit, mrp],
+    queryKey: ["product-options", query, packetsOnly, unit, mrp, suggestedName],
     queryFn: () =>
       api<any[]>(
-        `/product-options?q=${encodeURIComponent(query)}${packetsOnly || unit ? `&unit=${encodeURIComponent(packetsOnly ? "PKT" : unit!)}` : ""}${mrp != null ? `&mrp=${mrp}` : ""}`,
+        `/product-options?q=${encodeURIComponent(query)}&suggested=${encodeURIComponent(suggestedName)}${packetsOnly || unit ? `&unit=${encodeURIComponent(packetsOnly ? "PKT" : unit!)}` : ""}${mrp != null ? `&mrp=${mrp}` : ""}`,
       ),
     enabled: open,
   });

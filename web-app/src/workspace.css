@@ -208,7 +208,9 @@ button.primary:hover {
   max-width: 360px;
 }
 .data-grid td {
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: nowrap;
 }
 .data-grid td .record-title {
   font-weight: 550;
@@ -1461,4 +1463,114 @@ button.primary:hover {
   margin-top: 8px;
   font-size: 13px;
   line-height: 1.5;
+}
+
+/* Tables retain readable columns and scroll within their own container. */
+.data-grid {
+  min-width: 0;
+}
+.data-grid th {
+  white-space: nowrap;
+}
+.data-grid
+  td:is(
+    [data-column="name"],
+    [data-column="shop"],
+    [data-column="supplier"],
+    [data-column="address"],
+    [data-column="reason"]
+  ) {
+  min-width: 240px;
+  max-width: 400px;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+.data-grid td[data-column="number"] {
+  min-width: 112px;
+}
+.table-wrap:focus-visible {
+  outline: 2px solid #3862e8;
+  outline-offset: 3px;
+}
+.payment-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.payment-cash {
+  background: #eaf1ff;
+  color: #244fc2;
+}
+.payment-cheque {
+  background: #f1ecff;
+  color: #7043b2;
+}
+.payment-credit {
+  background: #fff3df;
+  color: #946014;
+}
+.payment-unset {
+  background: #f1f5f9;
+  color: #64748b;
+}
+.bill-payment-field {
+  display: grid;
+  gap: 6px;
+  max-width: 260px;
+  margin: 16px 0;
+}
+.finance-payments {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  margin: 20px 0;
+}
+.payment-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 24px;
+}
+.payment-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.payment-total strong {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.payment-total small {
+  color: #64748b;
+}
+.payment-meter {
+  height: 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  width: 100%;
+  overflow: hidden;
+}
+.payment-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+.payment-bar-cash {
+  background: #3862e8;
+}
+.payment-bar-cheque {
+  background: #9063ce;
+}
+.payment-bar-credit {
+  background: #d19a39;
+}
+.payment-bar-unset {
+  background: #94a3b8;
 }

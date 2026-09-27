@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { Download } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
+import PaymentBadge from "../components/PaymentBadge";
 import DataTable, { type Row } from "../components/DataTable";
 import { money } from "./Lists";
 import {
@@ -48,6 +49,13 @@ const columns: ColumnDef<Row>[] = [
       <span className={`status ${getValue()}`}>
         {getValue() === "pending" ? "Draft" : "Accepted"}
       </span>
+    ),
+  },
+  {
+    accessorKey: "payment_type",
+    header: "Payment",
+    cell: ({ getValue }) => (
+      <PaymentBadge value={getValue() as string | null} />
     ),
   },
   valueColumn("gross", "Gross"),
@@ -114,6 +122,40 @@ function Summary({ report }: { report: FinanceReport }) {
           </div>
         ))}
       </div>
+      <section
+        className="finance-payments"
+        aria-label="Billed value by payment type"
+      >
+        <div className="finance-section-title">
+          <h2>Payment types</h2>
+          <span>Net billed · Rs</span>
+        </div>
+        <div className="payment-totals">
+          {report.payments
+            .filter((p) => p.type !== "unset" || p.bills > 0)
+            .map((p) => (
+              <div key={p.type} className="payment-total">
+                <PaymentBadge value={p.type} />
+                <strong>{money(p.net)}</strong>
+                <small>
+                  {p.bills} {p.bills === 1 ? "bill" : "bills"}
+                </small>
+                <div
+                  className="payment-meter"
+                  role="img"
+                  aria-label={`${p.label}: ${money(p.net)}`}
+                >
+                  <i
+                    className={`payment-bar-${p.type}`}
+                    style={{
+                      width: `${(Math.abs(p.net) / Math.max(1, ...report.payments.map((v) => Math.abs(v.net)))) * 100}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+        </div>
+      </section>
       <div className="finance-analysis">
         <FinanceChart days={report.days} />
         <section className="finance-discounts" aria-label="Discount categories">

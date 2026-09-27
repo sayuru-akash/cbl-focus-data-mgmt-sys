@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Plus, ChevronRight } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import DataTable, { type Row } from "../components/DataTable";
+import PaymentBadge from "../components/PaymentBadge";
 import DeleteIntakeButton from "../components/DeleteIntakeButton";
 import { useStock } from "./Providers";
 export const money = (value: number | null | undefined) =>
@@ -235,6 +236,11 @@ export const billColumns: ColumnDef<Row, any>[] = [
   },
   { accessorKey: "date", header: "Date" },
   { accessorKey: "status", header: "Status", cell: statusCell },
+  {
+    accessorKey: "payment_type",
+    header: "Payment",
+    cell: ({ getValue }) => <PaymentBadge value={getValue()} />,
+  },
   {
     accessorKey: "total",
     header: "Total",

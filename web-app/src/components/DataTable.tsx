@@ -18,6 +18,7 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
+import { paymentLabels } from "../../server/payment";
 import { api } from "../api";
 import { ErrorText } from "./UI";
 export type Row = Record<string, any>;
@@ -91,7 +92,7 @@ export default function DataTable({
     q: query,
     ...extra,
   });
-  for (const key of ["from", "to"]) {
+  for (const key of ["from", "to", "payment"]) {
     const value = searchParams.get(key);
     if (value) params.set(key, value);
   }
@@ -171,6 +172,22 @@ export default function DataTable({
             </select>
           </label>
         )}
+        {(endpoint === "/finance" || endpoint === "/tables/bills") && (
+          <label className="filter-label">
+            Payment
+            <select
+              value={searchParams.get("payment") || "all"}
+              onChange={(e) => update({ payment: e.target.value })}
+            >
+              <option value="all">All types</option>
+              {Object.entries(paymentLabels).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {dates && (
           <>
             <label className="filter-label">
@@ -227,7 +244,13 @@ export default function DataTable({
       {data.isError && (
         <button onClick={() => void data.refetch()}>Try again</button>
       )}
-      <div className="table-wrap" aria-busy={data.isFetching}>
+      <div
+        className="table-wrap"
+        tabIndex={0}
+        role="region"
+        aria-label={`${label} table`}
+        aria-busy={data.isFetching}
+      >
         <table>
           <thead>
             {table.getHeaderGroups().map((group) => (
@@ -275,7 +298,7 @@ export default function DataTable({
             {table.getRowModel().rows.map((row) => (
               <tr key={row.id}>
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id}>
+                  <td key={cell.id} data-column={cell.column.id}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}

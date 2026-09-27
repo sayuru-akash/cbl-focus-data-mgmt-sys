@@ -1,3 +1,4 @@
+import { paymentLabels } from "./payment";
 import { z } from "zod";
 import { AppError, type Store } from "./store";
 import {
@@ -9,6 +10,7 @@ const filters = z.object({
   from: z.iso.date().optional(),
   to: z.iso.date().optional(),
   status: z.enum(["accepted", "pending", "all"]).default("accepted"),
+  payment: z.enum(["all", "cash", "cheque", "credit", "unset"]).default("all"),
   q: z.string().trim().max(200).default(""),
   page: z.coerce.number().int().min(1).max(100000).default(1),
   size: z.coerce.number().int().min(5).max(100).default(10),
@@ -18,6 +20,7 @@ const filters = z.object({
       "number",
       "shop",
       "status",
+      "payment_type",
       "gross",
       "discount",
       "returns",
@@ -36,6 +39,7 @@ export type FinanceRow = {
   shop: string;
   date: string;
   status: string;
+  payment_type: string | null;
   gross: number | null;
   discount: number | null;
   returns: number | null;
@@ -68,6 +72,10 @@ export async function finance(
     where.push("status=?");
     args.push(f.status);
   }
+  if (f.payment !== "all") {
+    where.push("COALESCE(payment_type,'unset')=?");
+    args.push(f.payment);
+  }
   if (f.q) {
     where.push(
       "(number LIKE ? ESCAPE '\\' OR shop LIKE ? ESCAPE '\\' OR json_extract(receipt,'$.outletId') LIKE ? ESCAPE '\\')",
@@ -77,9 +85,16 @@ export async function finance(
   }
   const bills = await store.db
     .query(
-      `SELECT id,number,shop,status,received,receipt FROM bills WHERE ${where.join(" AND ")}`,
+      `SELECT id,number,shop,status,payment_type,received,receipt FROM bills WHERE ${where.join(" AND ")}`,
     )
     .all(...args);
+  const payments = Object.keys(paymentLabels).map((type) => ({
+    type,
+    label: paymentLabels[type as keyof typeof paymentLabels],
+    net: 0,
+    bills: 0,
+    incomplete: 0,
+  }));
   const summary = {
     bills: bills.length,
     accepted: 0,
@@ -138,6 +153,7 @@ export async function finance(
       number: b.number,
       shop: b.shop,
       status: b.status,
+      payment_type: b.payment_type,
       date,
       gross: null,
       discount: null,
@@ -148,6 +164,10 @@ export async function finance(
       cerealBars: null,
       issues,
     };
+    const payment = payments.find(
+      (p) => p.type === (b.payment_type || "unset"),
+    )!;
+    payment.bills++;
     if (!r?.date) issues.push("Bill date missing; received date used");
     if (
       !a ||
@@ -161,6 +181,7 @@ export async function finance(
       ].every((n) => typeof n === "number" && Number.isFinite(n))
     ) {
       summary.incomplete++;
+      payment.incomplete++;
       issues.push("Amounts not available");
       rows.push(row);
       continue;
@@ -192,6 +213,7 @@ export async function finance(
       cerealBars: cents(categories.cerealBars),
       categoryDifference: cents(difference),
     };
+    payment.net += values.net;
     for (const key of monetary) summary[key] += values[key];
     if (difference) {
       summary.categoryIssues++;
@@ -249,10 +271,11 @@ export async function finance(
     size: f.size,
     summary,
     freeUnits,
+    payments: payments.map((p) => ({ ...p, net: p.net / 100 })),
     days: [...days.values()]
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((d) => ({ ...d, net: d.net / 100, discount: d.discount / 100 })),
-    filters: { from, to, status: f.status, q: f.q },
+    filters: { from, to, status: f.status, q: f.q, payment: f.payment },
   };
 }
 export type FinanceReport = Awaited<ReturnType<typeof finance>>;
@@ -263,6 +286,7 @@ export function financeCsv(report: FinanceReport) {
     "Date",
     "Customer",
     "Status",
+    "Payment",
     "Gross",
     "Discounts",
     "Chocolate",
@@ -287,6 +311,9 @@ export function financeCsv(report: FinanceReport) {
         r.date,
         r.shop,
         r.status,
+        paymentLabels[
+          (r.payment_type || "unset") as keyof typeof paymentLabels
+        ],
         r.gross,
         r.discount,
         r.chocolate,

@@ -1,3 +1,4 @@
+import { isPaymentType } from "./payment";
 import { reviewedReceipt } from "./reviewed-receipt";
 import { mapAsync } from "./db";
 import { openDatabase, type DataConnection } from "./db";
@@ -90,6 +91,10 @@ export class Store {
     const columns = (await this.db.query("PRAGMA table_info(bills)").all()) as {
       name: string;
     }[];
+    if (!columns.some((column) => column.name === "payment_type"))
+      await this.db.exec(
+        "ALTER TABLE bills ADD COLUMN payment_type TEXT CHECK(payment_type IS NULL OR payment_type IN ('cash','cheque','credit'))",
+      );
     if (!columns.some((column) => column.name === "revision"))
       await this.db.exec(
         "ALTER TABLE bills ADD COLUMN revision INTEGER NOT NULL DEFAULT 1",
@@ -180,9 +185,10 @@ export class Store {
           "This invoice number already exists. Check for a reprint.",
         );
       else number = receipt.number;
+      const match = await this.inventory.matcher();
       items = JSON.stringify(
-        await mapAsync(receipt.items, async (item, sourceLine) => ({
-          productId: await this.inventory.match(item.name, item.unit),
+        receipt.items.map((item, sourceLine) => ({
+          productId: match(item.name, item.unit),
           quantity: item.quantity,
           sourceLine,
           mrp: item.mrp ?? null,
@@ -439,7 +445,7 @@ export class Store {
     return (
       await this.db
         .query(
-          "SELECT id,filename,mime,source,received,status,number,shop,items,note,decided,receipt FROM bills ORDER BY received DESC",
+          "SELECT id,filename,mime,source,received,status,number,shop,items,note,decided,receipt,payment_type FROM bills ORDER BY received DESC",
         )
         .all()
     ).map((r: any) => ({
@@ -462,17 +468,19 @@ export class Store {
   }
   async reviewBill(id: string) {
     const b = await this.bill(id);
-    if (b.status === "pending")
-      b.items = await mapAsync(b.items, async (item: any) => {
+    if (b.status === "pending") {
+      const match = await this.inventory.matcher();
+      b.items = b.items.map((item: any) => {
         if (item.productId || item.sourceLine === undefined) return item;
         const source = b.receipt?.items[item.sourceLine];
         return source
           ? {
               ...item,
-              productId: await this.inventory.match(source.name, source.unit),
+              productId: match(source.name, source.unit),
             }
           : item;
       });
+    }
     return b;
   }
   async restoreBillPrint(id: string, revision: number) {
@@ -528,6 +536,8 @@ export class Store {
       note = string(input.note ?? "", 1000);
     if (!Array.isArray(input.items) || input.items.length > 500)
       fail("Invalid bill items");
+    if (input.payment_type != null && !isPaymentType(input.payment_type))
+      fail("Choose Cash, Cheque, or Credit");
     const originalBill = await this.bill(id);
     const receipt =
       originalBill.receipt && input.receipt
@@ -594,13 +604,14 @@ export class Store {
             number: current.number,
             shop: current.shop,
             note: current.note,
+            payment_type: current.payment_type,
           }),
           id,
           current.revision,
         );
       await this.db
         .query(
-          "UPDATE bills SET number=?,shop=?,items=?,note=?,receipt=?,revision=revision+1 WHERE id=?",
+          "UPDATE bills SET number=?,shop=?,items=?,note=?,receipt=?,payment_type=?,revision=revision+1 WHERE id=?",
         )
         .run(
           number,
@@ -608,10 +619,52 @@ export class Store {
           JSON.stringify(items),
           note,
           JSON.stringify(receipt),
+          input.payment_type === undefined
+            ? current.payment_type
+            : input.payment_type,
           id,
         );
     })();
     return { revision: (await this.bill(id)).revision };
+  }
+  async setBillPayment(id: string, payment: unknown, revision: unknown) {
+    if (!isPaymentType(payment)) fail("Choose Cash, Cheque, or Credit");
+    return this.db.transaction(async () => {
+      const b = await this.bill(id);
+      if (b.status !== "accepted")
+        fail("Only accepted bills use this payment update");
+      if (!Number.isInteger(revision) || revision !== b.revision)
+        throw new AppError(
+          "This bill changed in another window. Reload it before saving.",
+          409,
+        );
+      if (b.payment_type === payment)
+        return { revision: b.revision, payment_type: payment };
+      await this.db
+        .query(
+          "INSERT INTO bill_parse_history(id,bill_id,receipt,items,revision,created,metadata) VALUES (?,?,?,?,?,?,?)",
+        )
+        .run(
+          randomUUID(),
+          id,
+          JSON.stringify(b.receipt),
+          JSON.stringify(b.items),
+          b.revision,
+          new Date().toISOString(),
+          JSON.stringify({
+            action: "payment_change",
+            payment_type: b.payment_type,
+            next_payment_type: payment,
+            number: b.number,
+            shop: b.shop,
+            note: b.note,
+          }),
+        );
+      await this.db
+        .query("UPDATE bills SET payment_type=?,revision=revision+1 WHERE id=?")
+        .run(payment, id);
+      return { revision: b.revision + 1, payment_type: payment };
+    })();
   }
   async deleteBill(id: string, revision: number, confirmation: string) {
     if (confirmation !== "DELETE") fail("Confirm deletion first");

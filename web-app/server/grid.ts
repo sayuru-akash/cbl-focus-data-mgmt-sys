@@ -9,6 +9,7 @@ const schema = z.object({
   dir: z.enum(["asc", "desc"]).default("desc"),
   from: z.iso.date().optional(),
   to: z.iso.date().optional(),
+  payment: z.enum(["all", "cash", "cheque", "credit", "unset"]).default("all"),
   customer: z.string().max(80).optional(),
   product: z.string().max(80).optional(),
 });
@@ -46,7 +47,7 @@ export async function grid(
       if (f.status === "available") clauses.push("stock>0");
       break;
     case "bills":
-      source = `SELECT id,number,shop,status,received,customer_id,COALESCE(json_extract(receipt,'$.date'),substr(received,1,10)) date,json_extract(receipt,'$.outletId') outlet,json_extract(receipt,'$.total') total FROM bills`;
+      source = `SELECT id,number,shop,status,payment_type,received,customer_id,COALESCE(json_extract(receipt,'$.date'),substr(received,1,10)) date,json_extract(receipt,'$.outletId') outlet,json_extract(receipt,'$.total') total FROM bills`;
       search = ["number", "shop", "outlet"];
       sorts = {
         number: "number",
@@ -55,6 +56,7 @@ export async function grid(
         total: "total",
         status: "status",
         received: "received",
+        payment_type: "payment_type",
       };
       date = "date";
       if (!["all", "pending", "accepted", "rejected"].includes(f.status))
@@ -62,6 +64,10 @@ export async function grid(
       if (f.status !== "all") {
         clauses.push("status=?");
         args.push(f.status);
+      }
+      if (f.payment !== "all") {
+        clauses.push("COALESCE(payment_type,'unset')=?");
+        args.push(f.payment);
       }
       if (f.customer) {
         clauses.push("customer_id=?");
