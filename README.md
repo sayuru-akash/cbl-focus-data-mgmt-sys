@@ -113,7 +113,15 @@ cd android-connector
 ./gradlew assembleDebug lintDebug
 ```
 
-Run `./scripts/package-bridge.sh` at the repository root to copy the built APK into the web app's download folder. The Next.js server serves the installer directly from `web-app/public/downloads`. APKs, database files, and build output are excluded from Git.
+The permanent installer link is `https://cbf.amsonline.lk/downloads/focus-bridge.apk`. It redirects to the APK in the private R2 bucket with a fresh one-hour download signature. This endpoint needs no login or database connection. APKs live under `releases/focus-bridge/`, separately from invoice photos and their cleanup queue. Web deployments do not bundle or delete these releases.
+
+After building a new APK, publish it from `web-app`:
+
+```sh
+bun scripts/publish-bridge.ts
+```
+
+The publisher verifies the Android package, signature and version, uploads a versioned SHA-256-addressed object, reads it back to verify its checksum, then updates `server/bridge-release.json`. Include that manifest in the next deployment. It rejects changed APK bytes without a versionCode increase, downgrades and signing certificate changes. Old release objects remain available. It uses the existing R2 environment variables; no new credentials are required. `scripts/package-bridge.sh` only makes a local APK copy. APK binaries and secrets stay out of Git.
 
 ## Verification
 

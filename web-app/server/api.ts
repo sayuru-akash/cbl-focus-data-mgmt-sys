@@ -1,3 +1,4 @@
+import { bridgeDownload } from "./bridge-download";
 import { PhotoStorage } from "./photos";
 import { mapAsync } from "./db";
 import { resolve } from "node:path";
@@ -80,6 +81,7 @@ export async function handleApi(
   const url = new URL(req.url),
     path = url.pathname;
   const method = req.method;
+  if (path === "/api/downloads/focus-bridge.apk") return bridgeDownload(req);
   const loopback =
     allowLocalSetup &&
     ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(address);

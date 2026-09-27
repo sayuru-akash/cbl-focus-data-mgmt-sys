@@ -68,15 +68,24 @@ export class PhotoStorage {
       },
     );
   }
-  async downloadUrl(key: string) {
+  async downloadUrl(
+    key: string,
+    options?: { filename: string; contentType: string; expiresIn: number },
+  ) {
     return getSignedUrl(
       this.client,
       new GetObjectCommand({
         Bucket: this.bucket,
         Key: key,
         ResponseCacheControl: "private, no-store",
+        ...(options
+          ? {
+              ResponseContentDisposition: `attachment; filename="${options.filename}"`,
+              ResponseContentType: options.contentType,
+            }
+          : {}),
       }),
-      { expiresIn: 60 },
+      { expiresIn: options?.expiresIn ?? 60 },
     );
   }
   async head(key: string) {
@@ -87,6 +96,8 @@ export class PhotoStorage {
   }
   async delete(keys: string[]) {
     if (!keys.length) return;
+    if (keys.some((key) => key.startsWith("releases/")))
+      throw new Error("Release assets cannot be removed by photo cleanup");
     const result = await this.client.send(
       new DeleteObjectsCommand({
         Bucket: this.bucket,

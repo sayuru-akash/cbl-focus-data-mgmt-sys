@@ -7,3 +7,5 @@ web-app/.env*
 !web-app/.env.example
 android-connector/
 *.log
+
+web-app/public/downloads/
