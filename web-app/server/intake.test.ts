@@ -66,9 +66,14 @@ test("MC pack sizes come from explicit descriptions, DZ remains 12", () => {
   expect(readMoney("45.679.68")).toBe(45679.68);
 });
 
-test("cached backup pages resume without rescanning, preserve repeated rows and never add stock", async () => {
+test("cached pages reuse exact product identity across supplier codes, preserve repeated rows and never add stock", async () => {
   const { store, intakes, id, d } = await setup();
   try {
+    const productId = await store.saveProduct({
+      sku: "P000901",
+      name: "CHOCOLATE 45G",
+      unit: "PKT",
+    });
     const empty = { ...d, lines: [], pages: [], headerReviewed: false };
     await store.db
       .query("UPDATE intakes SET draft=? WHERE id=?")
@@ -104,6 +109,10 @@ test("cached backup pages resume without rescanning, preserve repeated rows and 
     expect(result.processing).toBe(false);
     expect((await intakes.get(id)).processing).toBe(false);
     expect(result.draft.lines).toHaveLength(2);
+    expect(result.draft.lines.map((l: any) => l.productId)).toEqual([
+      productId,
+      productId,
+    ]);
     expect(result.draft.lines[0]!.id).not.toBe(result.draft.lines[1]!.id);
     expect(
       result.draft.lines.every(
@@ -111,7 +120,8 @@ test("cached backup pages resume without rescanning, preserve repeated rows and 
       ),
     ).toBe(true);
     expect(result.draft.headerReviewed).toBe(false);
-    expect(await store.products()).toHaveLength(0);
+    expect(await store.products()).toHaveLength(1);
+    expect((await store.products())[0]!.stock).toBe(0);
     expect(
       (await store.db.query("SELECT count(*) n FROM purchases").get()).n,
     ).toBe(0);
@@ -127,7 +137,7 @@ test("one reviewed invoice atomically creates products, converts packets, alloca
     const received = await intakes.receive(id, 1);
     expect(received.status).toBe("received");
     expect((await store.products())[0]).toMatchObject({
-      sku: "114309834-CK001",
+      sku: "P000001",
       stock: 9,
       unit: "PKT",
     });
@@ -180,7 +190,7 @@ test("missing MRP, incompatible conversion and inconsistent totals cannot add st
     await store.db.close();
   }
 });
-test("same names with different supplier codes are distinct products; price variants are separate lots", async () => {
+test("the same product from different supplier codes and suppliers reuses one product while lots keep their costs and MRPs", async () => {
   const { store, intakes, id, d } = await setup();
   try {
     d.lines.push({ ...line("CK002"), amount: 12600 });
@@ -188,14 +198,17 @@ test("same names with different supplier codes are distinct products; price vari
     d.total = 24600;
     await intakes.save(id, { revision: 1, draft: d });
     await intakes.receive(id, 2);
-    expect(await store.products()).toHaveLength(2);
+    expect(await store.products()).toHaveLength(1);
     const second = crypto.randomUUID();
     d.number = "TAX002";
+    d.supplier = "Second Supplier";
+    d.tin = "222222222";
     d.pages[0]!.invoice = "TAX002";
     d.pages[0]!.document = "D2";
-    d.lines = [line("CK001", "MC", 650)];
+    d.lines = [line("NEW-CODE", "MC", 650)];
     d.gross = 12600;
-    d.total = 12000;
+    d.discount = 0;
+    d.total = 12600;
     await store.db
       .query("INSERT INTO intakes(id,draft,created) VALUES (?,?,?)")
       .run(second, JSON.stringify(d), "2026");
@@ -213,17 +226,23 @@ test("same names with different supplier codes are distinct products; price vari
         new Uint8Array([1]),
       );
     await intakes.receive(second, 1);
-    expect(await store.products()).toHaveLength(2);
-    const p = (await store.products()).find((p: any) =>
-      p.sku.endsWith("CK001"),
-    )!;
-    expect(p.stock).toBe(18);
-    expect(p.lots.map((l: any) => l.mrp)).toEqual([600, 650]);
+    const products = await store.products();
+    expect(products).toHaveLength(1);
+    expect(products[0]!.stock).toBe(27);
+    expect(products[0]!.lots.map((l: any) => l.mrp)).toEqual([600, 600, 650]);
+    expect(products[0]!.lots.map((l: any) => l.costPrice)).toEqual([
+      1366.67,
+      1366.67,
+      1400,
+    ]);
+    expect(
+      await store.db.query("SELECT count(*) n FROM supplier_products").get(),
+    ).toEqual({ n: 0 });
   } finally {
     await store.db.close();
   }
 });
-test("a supplier code cannot be reassigned; failures roll back earlier rows", async () => {
+test("one product identity cannot split across stock items; failures roll back earlier rows", async () => {
   const { store, intakes, id, d } = await setup();
   try {
     const productId = await store.saveProduct({
@@ -243,7 +262,9 @@ test("a supplier code cannot be reassigned; failures roll back earlier rows", as
     d.gross = 25200;
     d.total = 24600;
     await intakes.save(id, { revision: 1, draft: d });
-    await expect(intakes.receive(id, 2)).rejects.toThrow("already linked");
+    await expect(intakes.receive(id, 2)).rejects.toThrow(
+      "same product identity must use one stock item",
+    );
     expect((await store.products())[0].stock).toBe(0);
     expect(await store.inventory.purchases()).toHaveLength(0);
     expect(
@@ -253,7 +274,7 @@ test("a supplier code cannot be reassigned; failures roll back earlier rows", as
     await store.db.close();
   }
 });
-test("review can explicitly link changed supplier codes to one item while keeping prices separate", async () => {
+test("manual product selection can link invoice rows while keeping lot MRPs separate", async () => {
   const { store, intakes, id, d } = await setup();
   try {
     const productId = await store.saveProduct({
@@ -276,10 +297,8 @@ test("review can explicitly link changed supplier codes to one item while keepin
       600, 650,
     ]);
     expect(
-      await store.db
-        .query("SELECT count(*) n FROM supplier_products WHERE product_id=?")
-        .get(productId!),
-    ).toEqual({ n: 2 });
+      await store.db.query("SELECT count(*) n FROM supplier_products").get(),
+    ).toEqual({ n: 0 });
   } finally {
     await store.db.close();
   }

@@ -11,7 +11,7 @@ Bluetooth prints arrive as sales drafts. Supplier invoice photos become stock-in
 | Page | What it does |
 | --- | --- |
 | **Bills** | Review incoming prints; search pending, accepted and rejected bills by date, customer, number and payment type. Desktop review opens in a side panel. |
-| **Stock** | See quantities, MRP batches, purchase costs, supplier codes and movement history. Receive deliveries through invoice photos. |
+| **Stock** | See quantities, MRP batches, purchase costs and movement history. Receive deliveries through invoice photos. |
 | **Finance** | Filter accepted sales by date and payment type; view discounts, returns and free items; export the filtered report. |
 | **Customers** | Find shops and their bill history. Customers are linked by outlet ID when bills are accepted. |
 | **Connection** | Download the Android receiver and copy its connector key. |
@@ -38,8 +38,9 @@ Drafts never change stock. Drafts can be deleted; received invoices remain read-
 - **Whole packets:** quantities and pack sizes are whole numbers. Money is calculated in cents. The internal scaled quantity representation does not permit fractional user quantities.
 - **Units:** `DZ` means 12 packets. `MC` uses explicit packaging evidence, such as `480GX6EA` for 6 packets per carton. Ambiguous sizes require review. Box counts and converted packet quantities are cross-checked.
 - **Separate prices:** purchase cost, MRP and selling price are distinct. Each delivery retains its own cost and MRP batch. Missing MRP must be confirmed from packaging.
-- **Stable products:** supplier TIN plus product code identifies an incoming product. Unknown codes create separate products unless deliberately linked to an existing item during review. Names or prices alone never merge supplier products.
-- **Conservative sales matching:** a unique product identity or remembered mapping, matching stock unit, and available stock at the printed MRP are required for automatic selection. Different weights, flavours, ambiguous names and different MRPs stay for review. Similar names rank first in manual search; ranking does not automatically select them.
+- **Stable products:** supplier, TIN and product code do not define product identity. The same physical product keeps one product record when suppliers or codes change. Automatic intake matching requires a unique normalized identity and packet unit; meaningful variants remain separate, and ambiguous matches need review.
+- **Per-delivery prices:** purchase cost and MRP are stored on each stock lot. Cost changes do not create a new product; MRP changes create separate lots under the same product so sales still match the printed MRP.
+- **Conservative sales matching:** a unique product identity or reviewed product alias, matching stock unit, and available stock at the printed MRP are required for automatic selection. Different weights, flavours, ambiguous names and different MRPs stay for review. Similar names rank first in manual search; ranking does not automatically select them.
 - **MRP then FIFO:** sales and free items consume the oldest available batch at the specified MRP. There is no fallback to a differently priced or unknown-MRP batch. Shortages block acceptance.
 - **Returns:** fresh returns restore sellable stock. Market/expiry returns affect bill value without increasing sellable stock. Free items reduce stock without adding a sales charge.
 - **Safe retries:** identical print uploads deduplicate. Conflicting reprints require review. Supplier invoice uniqueness and transactional posting prevent duplicate stock receipts. Revision checks protect against stale edits.

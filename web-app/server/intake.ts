@@ -3,7 +3,7 @@ import { mapAsync } from "./db";
 import { invoiceCosts } from "./intake-costs";
 import { createHash, randomUUID } from "node:crypto";
 import { AppError, Store, string, units } from "./store";
-import { cents } from "./inventory";
+import { cents, productIdentity } from "./inventory";
 import { recognizePhoto } from "./ocr";
 import { parseExtractedPage, extractedPage } from "./ocr-vision";
 import {
@@ -487,15 +487,9 @@ export class Intakes {
         lines: parsed.flatMap((p) => p.lines),
         headerReviewed: false,
       };
-      for (const line of draft.lines) {
-        const mapping = (await this.store.db
-          .query(
-            "SELECT product_id FROM supplier_products WHERE tin=? AND code=?",
-          )
-          .get(draft.tin, key(line.code))) as any;
-        if (mapping && (await this.store.product(mapping.product_id)))
-          line.productId = mapping.product_id;
-      }
+      const matchProduct = await this.store.inventory.matcher();
+      for (const line of draft.lines)
+        line.productId = matchProduct(line.description, "PKT");
       await this.store.db
         .query(
           "UPDATE intakes SET draft=?,revision=revision+1 WHERE id=? AND revision=?",
@@ -622,42 +616,27 @@ export class Intakes {
       if (!costs) fail("Check invoice amounts before receiving");
       const shares = costs!.map((c) => c.discountCents);
       const resolved = new Map<string, string>();
+      const matchProduct = await this.store.inventory.matcher();
       const lines = await mapAsync(d.lines, async (l, index) => {
-        const mapping = (await this.store.db
-          .query(
-            "SELECT product_id FROM supplier_products WHERE tin=? AND code=?",
-          )
-          .get(d.tin, l.code)) as any;
+        const identity = `${productIdentity(l.description)}|PKT`;
+        const earlierLine = resolved.get(identity);
         let productId =
-          resolved.get(l.code) || mapping?.product_id || l.productId;
-        if (productId && l.productId && productId !== l.productId)
-          fail(`Product code ${l.code} is already linked to another product`);
+          l.productId || earlierLine || matchProduct(l.description, "PKT");
+        if (earlierLine && productId !== earlierLine)
+          fail("The same product identity must use one stock item");
         if (productId) {
           const p = await this.store.product(productId);
           if (!p || p.unit !== "PKT")
-            fail(`Select an active packet product for ${l.code}`);
-          // A reviewed, explicit selection can link a replacement supplier code.
-          // Unknown codes are never merged by name or price automatically.
+            fail("Select an active packet product for this invoice line");
         } else {
-          // Codes are supplier-scoped. Never merge products by name or price.
-          const sku = `${d.tin}-${l.code}`;
-          if (
-            await this.store.db
-              .query("SELECT id FROM products WHERE upper(sku)=?")
-              .get(sku.toUpperCase())
-          )
-            fail(`SKU ${sku} exists. Select its stock item explicitly`);
           productId = await this.store.saveProduct({
             name: l.description,
-            sku,
+            sku: await this.store.inventory.nextSku(),
             unit: "PKT",
             stock: 0,
           });
         }
-        resolved.set(l.code, productId);
-        await this.store.db
-          .query("INSERT OR IGNORE INTO supplier_products VALUES (?,?,?)")
-          .run(d.tin, l.code, productId);
+        resolved.set(identity, productId);
         const quantity = l.sold! * l.packSize!;
         units(quantity);
         return {

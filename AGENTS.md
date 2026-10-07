@@ -124,12 +124,12 @@ Product identity and price-batch identity are separate concerns.
 
 ### Incoming supplier products
 
-- Supplier TIN plus supplier product code identifies the supplier mapping.
+- Product identity is independent of supplier name, TIN, and supplier product code. Supplier may change between deliveries.
+- Keep one internal product ID and SKU for the same physical product. Match only an unambiguous normalized product identity and packet unit; keep meaningful brand, flavour, formulation, and size variants separate.
+- Supplier product codes are invoice evidence, not product identity and not a required persistent mapping. Do not create a separate product solely because the supplier or code changed.
+- Purchase cost and MRP belong to each received stock lot. Different costs or MRPs do not create a new product identity; retain separate lots so costing and MRP allocation remain accurate.
+- Fuzzy similarity ranks manual review choices only. Ambiguous product identities require explicit review and must not be merged by a convenient price.
 - Keep internal product IDs and SKUs stable across deliveries and price changes.
-- An unknown supplier code creates a separate product by default. A reviewer may deliberately link it to an existing physical item.
-- Do not merge products merely because names or prices are similar.
-- Do not reassign an established supplier mapping silently.
-- Different delivery costs or MRPs normally create separate stock lots for the product, not a replacement product identity.
 - Unit changes after stock history exists must remain constrained by existing rules.
 
 ### Sales draft selection
