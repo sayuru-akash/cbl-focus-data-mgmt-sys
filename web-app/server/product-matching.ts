@@ -23,6 +23,8 @@ export function printedIdentity(name: string): string {
     .trim();
   // These labels are packaging/print suffixes, never flavours or weights.
   value = value
+    // Confirmed opening-stock identity: only the MRP changed for this item.
+    .replace(/^RITZBURY MILK 170G OLD$/, "RITZBURY MILK 170G")
     .replace(/\b(?:SPS|SACMI|PP)\b/g, " ")
     .replace(/\bCHOCOLATE A NUT\b/g, "CHOC A NUT")
     .replace(/\bBB\b/g, " ");

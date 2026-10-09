@@ -139,8 +139,8 @@ export class Inventory {
       .query("SELECT name,unit,product_id FROM product_aliases")
       .all();
     return (name: string, unit: string): string => {
-      const eligible = products.filter(
-        (p) => sales
+      const eligible = products.filter((p) =>
+        sales
           ? salesUnitCompatible(unit, p.unit)
           : normalize(p.unit) === normalize(unit),
       );
@@ -152,10 +152,10 @@ export class Inventory {
       const exact = eligible.filter(
         (p) => p.match_name === productIdentity(name),
       );
-      if (exact.length) return exact.length === 1 ? exact[0]!.id : "";
+      if (!sales && exact.length) return exact.length === 1 ? exact[0]!.id : "";
       const identity = printedIdentity(name);
       const normalized = eligible.filter(
-        (p) => printedIdentity(p.name) === identity,
+        (p) => exact.includes(p) || printedIdentity(p.name) === identity,
       );
       return normalized.length === 1 ? normalized[0]!.id : "";
     };

@@ -7,7 +7,11 @@ export function isGenericSalesUnit(unit: string): boolean {
 }
 
 export function salesUnitCompatible(printed: string, stock: string): boolean {
-  const source = normalize(printed), target = normalize(stock);
-  return source === target ||
-    (isGenericSalesUnit(source) && ["UNIT", "UNITS", "PKT", "BOX", "BTL"].includes(target));
+  const source = normalize(printed),
+    target = normalize(stock);
+  return (
+    source === target ||
+    (isGenericSalesUnit(source) &&
+      ["UNIT", "UNITS", "PKT", "BOX", "BTL"].includes(target))
+  );
 }

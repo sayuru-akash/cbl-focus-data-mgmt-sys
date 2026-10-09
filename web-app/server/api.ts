@@ -257,10 +257,12 @@ async function handleApiResponse(
           FROM products p WHERE p.archived=0 AND (? IS NULL OR upper(p.unit)=?)`,
           )
           .all(mrp, mrp, filterUnit, filterUnit);
-        const ranked = rows.filter((p) => !unit || salesUnitCompatible(unit, p.unit)).map((p) => ({
-          ...p,
-          score: productRelevance(query || suggested, p.name),
-        }));
+        const ranked = rows
+          .filter((p) => !unit || salesUnitCompatible(unit, p.unit))
+          .map((p) => ({
+            ...p,
+            score: productRelevance(query || suggested, p.name),
+          }));
         const words = printedIdentity(query).split(" ").filter(Boolean);
         return json(
           ranked

@@ -142,6 +142,16 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
       await fetch(base + "/api/product-options?q=SKU_&unit=PKT", { headers })
     ).json();
     expect(options[0].id).toBe(product);
+    const genericOptions = await (
+      await fetch(base + "/api/product-options?q=SKU_&unit=UNIT", { headers })
+    ).json();
+    expect(genericOptions[0].id).toBe(product);
+    expect(genericOptions[0].unit).toBe("PKT");
+    expect(
+      await (
+        await fetch(base + "/api/product-options?q=SKU_&unit=BOX", { headers })
+      ).json(),
+    ).toEqual([]);
     expect(
       (
         await fetch(base + "/api/products", {
