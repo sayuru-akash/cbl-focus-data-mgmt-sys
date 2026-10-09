@@ -1,4 +1,5 @@
 import { productRelevance, printedIdentity } from "./product-matching";
+import { isGenericSalesUnit, salesUnitCompatible } from "./sales-units";
 import { bridgeDownload } from "./bridge-download";
 import { PhotoStorage } from "./photos";
 import { mapAsync } from "./db";
@@ -247,6 +248,7 @@ async function handleApiResponse(
         const mrp = url.searchParams.has("mrp")
           ? cents(Number(url.searchParams.get("mrp")))
           : null;
+        const filterUnit = unit && !isGenericSalesUnit(unit) ? unit : null;
         const rows = await store.db
           .query(
             `SELECT p.id,p.name,p.sku,p.unit,p.stock/1000.0 stock,
@@ -254,8 +256,8 @@ async function handleApiResponse(
           COALESCE((SELECT SUM(l.remaining)/1000.0 FROM stock_lots l WHERE l.product_id=p.id AND (? IS NULL OR l.mrp=?)),0) matchingStock
           FROM products p WHERE p.archived=0 AND (? IS NULL OR upper(p.unit)=?)`,
           )
-          .all(mrp, mrp, unit, unit);
-        const ranked = rows.map((p) => ({
+          .all(mrp, mrp, filterUnit, filterUnit);
+        const ranked = rows.filter((p) => !unit || salesUnitCompatible(unit, p.unit)).map((p) => ({
           ...p,
           score: productRelevance(query || suggested, p.name),
         }));

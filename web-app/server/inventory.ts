@@ -1,4 +1,5 @@
 import { printedIdentity } from "./product-matching";
+import { isGenericSalesUnit, salesUnitCompatible } from "./sales-units";
 import { lineKind, billReviewErrors } from "./receipt";
 import { mapAsync } from "./db";
 import { randomUUID } from "node:crypto";
@@ -129,7 +130,7 @@ export class Inventory {
         .run(cents(input.costPrice), cents(input.mrp), lotId);
     })();
   }
-  async matcher() {
+  async matcher(sales = false) {
     // Load once per bill review; no persistent cache that could hide stock edits.
     const products = await this.store.db
       .query("SELECT id,name,unit,match_name FROM products WHERE archived=0")
@@ -139,7 +140,9 @@ export class Inventory {
       .all();
     return (name: string, unit: string): string => {
       const eligible = products.filter(
-        (p) => normalize(p.unit) === normalize(unit),
+        (p) => sales
+          ? salesUnitCompatible(unit, p.unit)
+          : normalize(p.unit) === normalize(unit),
       );
       const alias = aliases.find(
         (a) => a.name === normalize(name) && a.unit === normalize(unit),
@@ -158,7 +161,7 @@ export class Inventory {
     };
   }
   async billMatcher() {
-    const identify = await this.matcher();
+    const identify = await this.matcher(true);
     const lots = await this.store.db
       .query(
         "SELECT DISTINCT product_id,mrp FROM stock_lots WHERE remaining>0 AND mrp IS NOT NULL",
@@ -417,7 +420,17 @@ export class Inventory {
         });
         continue;
       }
-      if (source?.unit && normalize(source.unit) !== normalize(product.unit)) {
+      if (item.createReturnProduct && isGenericSalesUnit(source?.unit || "")) {
+        issues.push({
+          line: index,
+          kind: "unit",
+          name,
+          message: "Choose PKT, BOX or BTL for this new return item.",
+          shortage: 0,
+        });
+        continue;
+      }
+      if (source?.unit && !salesUnitCompatible(source.unit, product.unit)) {
         issues.push({
           line: index,
           kind: "unit",
@@ -507,6 +520,8 @@ export class Inventory {
       const source = bill.receipt?.items[item.sourceLine];
       if (source?.kind !== "fresh_return" || item.productId)
         fail("Invalid new return item");
+      if (isGenericSalesUnit(source.unit))
+        fail("Choose PKT, BOX or BTL for this new return item.");
       const exact = await this.store.db
         .query(
           "SELECT id FROM products WHERE match_name=? AND upper(unit)=? AND archived=0 LIMIT 2",

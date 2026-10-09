@@ -135,6 +135,7 @@ Product identity and price-batch identity are separate concerns.
 ### Sales draft selection
 
 - Automatic selection requires an unambiguous identity or valid remembered mapping, the correct stock unit, and positive available stock at the printed MRP.
+- In sales only, CBL `UNIT`/`UNITS` counts one sellable item and is compatible with PKT, BOX or BTL without quantity conversion. Resolve identity across all compatible units before checking MRP/stock; never use price or availability to resolve unit ambiguity. Explicit units remain distinct, and DZ/MC or unknown labels are not generic counts. New fresh-return products require an explicit stock unit.
 - A known name with a different MRP must remain unselected. Unknown MRP and exhausted matching lots also do not qualify.
 - Normalize only evidenced spelling/packaging differences. Preserve weight, flavour, size, brand and meaningful variants.
 - Fuzzy name similarity ranks manual search options; it must not silently select inventory.
