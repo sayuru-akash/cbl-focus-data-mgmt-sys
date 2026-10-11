@@ -169,6 +169,7 @@ Preserve these rules:
 - Do not silently use a different MRP or a batch with unknown MRP to satisfy a specified-MRP sale.
 - Repeated acceptance must be idempotent. Prevent duplicate active bill numbers and conflicting original-invoice acceptance.
 - Exact upload retries deduplicate. Preserve evidence of conflicting reprints for review rather than guessing which one is correct.
+- Matching complete distributor/customer print copies within a capture count once. Compare full business content before deduplicating; differing copies require review. Never deduplicate individual product rows or incomplete continuation pages by name or price.
 - Keep original capture bytes and the original parsed receipt distinct from reviewed edits. Retain revision/audit history.
 - Accepted payment type may be changed later through its dedicated, revision-checked, audited path. It must not replay stock movements or change bill totals.
 

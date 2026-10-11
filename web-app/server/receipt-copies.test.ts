@@ -6,9 +6,9 @@ import { openTestStore } from "./test-store";
 import { repairRepeatedCopyCategories } from "./bill-category-repair";
 
 const text = await Bun.file(`${import.meta.dir}/fixtures/cbl-73351.txt`).text();
-const copies = (count = 2) =>
+const copies = (count = 2, source = text) =>
   Array.from({ length: count }, (_, i) =>
-    text.replace(
+    source.replace(
       "[DUPLICATE] Copy",
       `[ORIGINAL] ${i ? "CUSTOMER" : "DISTRIBUTOR"} COPY`,
     ),
@@ -105,7 +105,12 @@ test("ordinary continuation pages and genuinely repeated rows remain intact; tru
 test("copy capture acceptance, retries and separate reprints never deduct twice", async () => {
   const s = await openTestStore();
   try {
-    const single = parseReceipt(text)!;
+    // Full copies are covered above; keep the remote ledger fixture small.
+    const flowText = text
+      .replace(/ 4  [\s\S]*?(?=NET TOTAL B\/F RETURN)/, "")
+      .replaceAll("10,670.00", "1,980.00")
+      .replaceAll("10,282.55", "1,592.55");
+    const single = parseReceipt(flowText)!;
     for (const line of single.items.filter(
       (i) => i.kind === "sale" || i.kind === "free",
     ))
@@ -116,7 +121,12 @@ test("copy capture acceptance, retries and separate reprints never deduct twice"
           stock: 1000,
           mrp: line.mrp,
         });
-    const { id } = await s.ingest(Buffer.from(copies()), "copies", "", "Test");
+    const { id } = await s.ingest(
+      Buffer.from(copies(2, flowText)),
+      "copies",
+      "",
+      "Test",
+    );
     const b = await s.reviewBill(id);
     expect(b.receipt.items).toEqual(single.items);
     await s.saveBill(id, {
@@ -135,11 +145,18 @@ test("copy capture acceptance, retries and separate reprints never deduct twice"
       expect(product.stock).toBe(1000 - demand);
     }
     expect(await s.decide(id, "accepted")).toEqual({ unchanged: true });
-    expect(await s.ingest(Buffer.from(copies()), "retry", "", "Test")).toEqual({
+    expect(
+      await s.ingest(Buffer.from(copies(2, flowText)), "retry", "", "Test"),
+    ).toEqual({
       id,
       duplicate: true,
     });
-    const reprint = await s.ingest(Buffer.from(text), "one copy", "", "Test");
+    const reprint = await s.ingest(
+      Buffer.from(flowText),
+      "one copy",
+      "",
+      "Test",
+    );
     const other = await s.reviewBill(reprint.id);
     await s.saveBill(reprint.id, {
       ...other,
@@ -221,27 +238,23 @@ test("authorized legacy category repair preserves accepted amounts, stock and or
       n: 0,
     });
     // Manual category edits and mismatched deductions cannot be silently overwritten.
-    await s.db
-      .query("UPDATE bills SET receipt=? WHERE id=?")
-      .run(
-        JSON.stringify({
-          ...legacy,
-          categoryDiscounts: { ...legacy.categoryDiscounts, chocolate: 441 },
-        }),
-        id,
-      );
+    await s.db.query("UPDATE bills SET receipt=? WHERE id=?").run(
+      JSON.stringify({
+        ...legacy,
+        categoryDiscounts: { ...legacy.categoryDiscounts, chocolate: 441 },
+      }),
+      id,
+    );
     await expect(
       repairRepeatedCopyCategories(s.db, id, after.revision),
     ).rejects.toThrow("not the repeated printed breakdown");
-    await s.db
-      .query("UPDATE bills SET receipt=? WHERE id=?")
-      .run(
-        JSON.stringify({
-          ...legacy,
-          accounting: { ...legacy.accounting, discount: 221.05 },
-        }),
-        id,
-      );
+    await s.db.query("UPDATE bills SET receipt=? WHERE id=?").run(
+      JSON.stringify({
+        ...legacy,
+        accounting: { ...legacy.accounting, discount: 221.05 },
+      }),
+      id,
+    );
     await expect(
       repairRepeatedCopyCategories(s.db, id, after.revision),
     ).rejects.toThrow("do not reconcile");

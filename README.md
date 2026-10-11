@@ -45,6 +45,7 @@ Drafts never change stock. Drafts can be deleted; received invoices remain read-
 - **MRP then FIFO:** sales and free items consume the oldest available batch at the specified MRP. There is no fallback to a differently priced or unknown-MRP batch. Shortages block acceptance.
 - **Returns:** fresh returns restore sellable stock. Market/expiry returns affect bill value without increasing sellable stock. Free items reduce stock without adding a sales charge.
 - **Safe retries:** identical print uploads deduplicate. Conflicting reprints require review. Supplier invoice uniqueness and transactional posting prevent duplicate stock receipts. Revision checks protect against stale edits.
+- **Printed copies:** matching complete distributor/customer copies in one capture are counted once, including items, returns and discount categories. Differing copies require review. Continuation pages and repeated product rows are retained, and original capture bytes remain unchanged.
 - **Corrections:** stock corrections require a reason and keep history. Accepted bills may be deleted within ten days using two confirmation steps. Deletion reverses their recorded stock movements atomically; a fresh-return batch already consumed elsewhere blocks reversal until its dependencies are resolved.
 
 Historical reviewed product choices remain intact. Changing the name, unit or MRP on an automatically mapped draft line clears its selection for another review.
