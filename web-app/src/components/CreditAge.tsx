@@ -20,15 +20,17 @@ export function CreditAgeCards({ report }: { report: CreditAgeReport }) {
       next.delete(key);
     return `/finance?${next}`;
   };
-  const all = report.buckets.reduce((n, b) => n + b.bills, 0);
-  const total =
-    report.buckets.reduce((n, b) => n + Math.round(b.net * 100), 0) / 100;
+  const all = report.summary.bills;
+  const total = report.summary.net;
   return (
     <section className="credit-age" aria-label="Credit age">
       <div className="finance-section-title">
         <div>
           <h2>Credit age</h2>
-          <p>All dates · As of {report.asOf}</p>
+          <p>
+            All dates · As of {report.asOf}
+            {report.filters.q ? " · Search results" : ""}
+          </p>
         </div>
         <Link
           className={`credit-age-all ${active === "all" ? "active" : ""}`}
@@ -42,6 +44,9 @@ export function CreditAgeCards({ report }: { report: CreditAgeReport }) {
           <strong>{money(total)}</strong>
           <small>
             {all} {all === 1 ? "bill" : "bills"}
+            {report.summary.incomplete
+              ? ` · ${report.summary.incomplete} missing amounts`
+              : ""}
           </small>
         </Link>
       </div>

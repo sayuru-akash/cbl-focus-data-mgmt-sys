@@ -211,7 +211,10 @@ export default function DataTable({
           </>
         )}
         {Array.from(searchParams.keys()).some(
-          (key) => key !== "bill" && !(preserveStatus && key === "status"),
+          (key) =>
+            key !== "bill" &&
+            key !== "view" &&
+            !(preserveStatus && key === "status"),
         ) && (
           <button
             className="icon-button"
@@ -221,6 +224,8 @@ export default function DataTable({
               const keep = new URLSearchParams();
               if (searchParams.get("tab"))
                 keep.set("tab", searchParams.get("tab")!);
+              if (searchParams.get("view"))
+                keep.set("view", searchParams.get("view")!);
               if (preserveStatus && searchParams.get("status"))
                 keep.set("status", searchParams.get("status")!);
               router.replace(path + (keep.size ? "?" + keep : ""), {

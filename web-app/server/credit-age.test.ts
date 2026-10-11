@@ -81,6 +81,7 @@ test("credit age partitions exact calendar-day boundaries across all dates, neve
     expect(report.asOf).toBe("2026-10-11");
     expect(report.total).toBe(10);
     expect(report.net).toBe(1000);
+    expect(report.summary).toEqual({ bills: 10, net: 1000, incomplete: 0 });
     expect(report.buckets.map((b) => [b.key, b.bills, b.net])).toEqual([
       ["today", 1, 100],
       ["1-13", 2, 200],

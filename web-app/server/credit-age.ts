@@ -33,6 +33,7 @@ export type CreditAgeRow = {
   issues: string[];
 };
 const dayNumber = (date: string) => Date.parse(date + "T00:00:00Z") / 86400000;
+const dateSchema = z.iso.date();
 
 export async function creditAge(
   store: Store,
@@ -73,7 +74,7 @@ export async function creditAge(
   for (const b of bills) {
     const receipt = JSON.parse(b.receipt || "null"),
       date = receipt?.date || "";
-    const validDate = z.iso.date().safeParse(date).success;
+    const validDate = dateSchema.safeParse(date).success;
     const age = validDate ? dayNumber(asOf) - dayNumber(date) : null;
     const band =
       age === null
@@ -106,8 +107,8 @@ export async function creditAge(
   }
   const selected = rows.filter((r) => f.band === "all" || r.band === f.band);
   selected.sort((a, b) => {
-    const av = a[f.sort] || (a[f.sort] === 0 ? 0 : null),
-      bv = b[f.sort] || (b[f.sort] === 0 ? 0 : null);
+    const av = a[f.sort] === "" ? null : a[f.sort],
+      bv = b[f.sort] === "" ? null : b[f.sort];
     if (av === null || bv === null)
       return av === bv ? a.id.localeCompare(b.id) : av === null ? 1 : -1;
     const cmp =
@@ -125,6 +126,11 @@ export async function creditAge(
   );
   return {
     asOf,
+    summary: {
+      bills: rows.length,
+      net: buckets.reduce((n, b) => n + b.net, 0) / 100,
+      incomplete: buckets.reduce((n, b) => n + b.incomplete, 0),
+    },
     buckets: buckets.map((b) => ({ ...b, net: b.net / 100 })),
     total: selected.length,
     page,

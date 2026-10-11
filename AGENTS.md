@@ -224,6 +224,7 @@ Do not change provider models or pricing assumptions based on memory. Inspect th
 - Group by bill date and the selected Sri Lanka date range. Use one filter interpretation for cards, charts, table results and CSV export.
 - Aggregates cover all matching rows, not only the paginated table page.
 - Payment categories are Cash, Cheque and Credit; retain an explicit unset category for legacy records. These represent billed amounts, not collections, bank deposits or profit.
+- Credit age uses accepted Credit bills across all dates, measured by Sri Lanka calendar days from the bill date as of today. Today, 1-13, 14-20, 21-29 and 30+ groups are disjoint. Never label billed values as unpaid balances or infer a missing bill date from upload time. Keep missing/future dates explicit and group totals, search, pagination and CSV consistent.
 - Chocolate, Candy Bar and Cereal Bars (`CERIAL BARS` on prints) are a breakdown of existing bill/SKU discounts, not another deduction.
 - Preserve line discounts, return values, reverse GRTS and free quantities separately. Flag reconciliation differences instead of allocating them by guesswork.
 - Handle zero totals and negative return-credit totals without forcing them into positive sales.

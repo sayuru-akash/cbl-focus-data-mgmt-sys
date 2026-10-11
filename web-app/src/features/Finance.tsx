@@ -97,7 +97,7 @@ const creditColumns: ColumnDef<Row>[] = [
           ? "Future date"
           : age === 0
             ? "Today"
-            : `${age} days`;
+            : `${age} ${age === 1 ? "day" : "days"}`;
     },
   },
   valueColumn("net", "Credit billed"),
@@ -303,7 +303,7 @@ export default function Finance() {
     return `/finance${next.size ? "?" + next : ""}`;
   };
   return (
-    <div className="finance-page">
+    <div className={`finance-page${creditView ? " finance-credit-view" : ""}`}>
       <header className="page-header">
         <div>
           <h1>Finance</h1>

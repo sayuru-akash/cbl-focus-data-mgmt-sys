@@ -1720,6 +1720,15 @@ button.primary:hover {
 .payment-bar-unset {
   background: #94a3b8;
 }
+@media (max-width: 640px) {
+  .finance-credit-view .grid-tools {
+    flex-wrap: nowrap;
+  }
+  .finance-credit-view .grid-tools > .search {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
 
 .success-notice {
   position: fixed;
