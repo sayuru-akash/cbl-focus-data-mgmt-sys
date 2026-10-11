@@ -14,7 +14,7 @@ import {
 } from "../../server/discount-categories";
 import type { FinanceReport } from "../../server/finance";
 import type { CreditAgeReport } from "../../server/credit-age";
-import CreditAgeOverview, { CreditAgeCards } from "../components/CreditAge";
+import { CreditAgeCards } from "../components/CreditAge";
 import { creditAgeBands } from "../../server/credit-age-bands";
 const FinanceChart = dynamic(() => import("../components/FinanceChart"), {
   ssr: false,
@@ -390,25 +390,22 @@ export default function Finance() {
           )}
         />
       ) : (
-        <>
-          <CreditAgeOverview today={today} />
-          <DataTable
-            key="overview"
-            endpoint="/finance"
-            label="Finance bills"
-            defaultSort="date"
-            defaultStatus="accepted"
-            dates
-            statuses={[
-              ["accepted", "Accepted"],
-              ["pending", "Drafts"],
-              ["all", "All active"],
-            ]}
-            extra={{ from, to }}
-            columns={columns}
-            renderSummary={(data: FinanceReport) => <Summary report={data} />}
-          />
-        </>
+        <DataTable
+          key="overview"
+          endpoint="/finance"
+          label="Finance bills"
+          defaultSort="date"
+          defaultStatus="accepted"
+          dates
+          statuses={[
+            ["accepted", "Accepted"],
+            ["pending", "Drafts"],
+            ["all", "All active"],
+          ]}
+          extra={{ from, to }}
+          columns={columns}
+          renderSummary={(data: FinanceReport) => <Summary report={data} />}
+        />
       )}
     </div>
   );

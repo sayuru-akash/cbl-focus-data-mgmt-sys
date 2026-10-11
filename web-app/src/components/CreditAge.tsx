@@ -1,9 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight } from "lucide-react";
-import { api } from "../api";
 import { money } from "../features/Lists";
 import { creditAgeBands } from "../../server/credit-age-bands";
 import type { CreditAgeReport } from "../../server/credit-age";
@@ -90,27 +88,4 @@ export function CreditAgeCards({ report }: { report: CreditAgeReport }) {
       </div>
     </section>
   );
-}
-
-export default function CreditAgeOverview({ today }: { today: string }) {
-  const query = useQuery({
-    queryKey: ["table", "/finance/credit-age", "summary", today],
-    queryFn: () => api<CreditAgeReport>("/finance/credit-age"),
-    refetchInterval: 10000,
-  });
-  if (query.isError)
-    return (
-      <div className="credit-age" role="alert">
-        Credit age unavailable.{" "}
-        <button onClick={() => void query.refetch()}>Try again</button>
-      </div>
-    );
-  if (!query.data)
-    return (
-      <section className="credit-age" aria-label="Credit age" aria-busy="true">
-        <h2>Credit age</h2>
-        <p role="status">Loading credit values…</p>
-      </section>
-    );
-  return <CreditAgeCards report={query.data} />;
 }
