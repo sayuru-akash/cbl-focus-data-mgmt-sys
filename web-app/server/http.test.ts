@@ -49,6 +49,10 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
     expect(privateReport.status).toBe(401);
     expect(privateReport.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     expect((await fetch(base + "/api/finance/export")).status).toBe(401);
+    expect((await fetch(base + "/api/finance/credit-age")).status).toBe(401);
+    expect((await fetch(base + "/api/finance/credit-age/export")).status).toBe(
+      401,
+    );
     expect(
       (
         await fetch(base + "/api/intakes/test-draft", {
@@ -76,6 +80,22 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
     expect(login.status).toBe(200);
     const cookie = login.headers.get("set-cookie")!.split(";")[0]!;
     const headers = { Cookie: cookie, Origin: base };
+    const creditReport = await fetch(base + "/api/finance/credit-age", {
+      headers,
+    });
+    expect(creditReport.status).toBe(200);
+    expect(creditReport.headers.get("cache-control")).toContain("no-store");
+    expect((await creditReport.json()).buckets).toHaveLength(7);
+    const creditExport = await fetch(
+      base + "/api/finance/credit-age/export?band=30%2B",
+      { headers },
+    );
+    expect(creditExport.status).toBe(200);
+    expect(creditExport.headers.get("content-type")).toContain("text/csv");
+    expect(
+      (await fetch(base + "/api/finance/credit-age?sort=evil", { headers }))
+        .status,
+    ).toBe(400);
     const photos = new FormData();
     photos.append(
       "pages",
