@@ -10,6 +10,7 @@ import { Store, AppError, string } from "./store";
 import { Intakes } from "./intake";
 import { grid } from "./grid";
 import { finance, financeCsv } from "./finance";
+import { creditAge, creditAgeCsv } from "./credit-age";
 import { cents } from "./inventory";
 let pending: Promise<{ store: Store; intakes: Intakes }> | undefined;
 export function workspace() {
@@ -302,6 +303,23 @@ async function handleApiResponse(
             .map((lot) => ({ mrp: lot.mrp, remaining: lot.remaining })),
         });
       }
+      if (path === "/api/finance/credit-age/export" && method === "GET") {
+        const report = await creditAge(
+          store,
+          url.searchParams,
+          new Date(),
+          true,
+        );
+        return new Response(creditAgeCsv(report), {
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="credit-age-${report.asOf}.csv"`,
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+      if (path === "/api/finance/credit-age" && method === "GET")
+        return json(await creditAge(store, url.searchParams));
       if (path === "/api/finance/export" && method === "GET") {
         const report = await finance(store, url.searchParams, new Date(), true);
         return new Response(financeCsv(report), {

@@ -13,6 +13,9 @@ import {
   discountCategories,
 } from "../../server/discount-categories";
 import type { FinanceReport } from "../../server/finance";
+import type { CreditAgeReport } from "../../server/credit-age";
+import CreditAgeOverview, { CreditAgeCards } from "../components/CreditAge";
+import { creditAgeBands } from "../../server/credit-age-bands";
 const FinanceChart = dynamic(() => import("../components/FinanceChart"), {
   ssr: false,
   loading: () => <div className="finance-chart-empty">Loading chart…</div>,
@@ -74,6 +77,31 @@ const columns: ColumnDef<Row>[] = [
         </span>
       ) : null,
   },
+];
+const creditColumns: ColumnDef<Row>[] = [
+  columns[0],
+  {
+    accessorKey: "date",
+    header: "Bill date",
+    cell: ({ getValue }) => String(getValue() || "Missing"),
+  },
+  { accessorKey: "shop", header: "Customer" },
+  {
+    accessorKey: "age",
+    header: "Age",
+    cell: ({ getValue }) => {
+      const age = getValue() as number | null;
+      return age === null
+        ? "Date missing"
+        : age < 0
+          ? "Future date"
+          : age === 0
+            ? "Today"
+            : `${age} days`;
+    },
+  },
+  valueColumn("net", "Credit billed"),
+  columns[columns.length - 1],
 ];
 function Summary({ report }: { report: FinanceReport }) {
   const s = report.summary;
@@ -229,6 +257,8 @@ function Summary({ report }: { report: FinanceReport }) {
 }
 export default function Finance() {
   const params = useSearchParams();
+  const creditView = params.get("view") === "credit";
+  const band = params.get("band") || "all";
   const [today, setToday] = useState(() => colomboDay());
   useEffect(() => {
     const timer = setInterval(() => setToday(colomboDay()), 60000);
@@ -265,6 +295,13 @@ export default function Finance() {
   exportParams.set("from", from);
   exportParams.set("to", to);
   if (!exportParams.has("status")) exportParams.set("status", "accepted");
+  const viewHref = (credit: boolean) => {
+    const next = new URLSearchParams(params);
+    for (const key of ["view", "band", "q", "sort", "dir", "page"])
+      next.delete(key);
+    if (credit) next.set("view", "credit");
+    return `/finance${next.size ? "?" + next : ""}`;
+  };
   return (
     <div className="finance-page">
       <header className="page-header">
@@ -274,40 +311,105 @@ export default function Finance() {
         </div>
         <a
           className="button"
-          href={`/api/finance/export?${exportParams}`}
+          href={
+            creditView
+              ? `/api/finance/credit-age/export?${new URLSearchParams({ band, q: params.get("q") || "", sort: params.get("sort") || "age", dir: params.get("dir") || "desc" })}`
+              : `/api/finance/export?${exportParams}`
+          }
           download
         >
           <Download size={17} />
           Export CSV
         </a>
       </header>
-      <nav className="finance-periods" aria-label="Finance period">
-        {presets.map(([label, start, end]) => (
-          <Link
-            key={label}
-            className={`button ${from === start && to === end ? "active" : ""}`}
-            href={period(start, end)}
-            scroll={false}
-          >
-            {label}
-          </Link>
-        ))}
+      <nav className="finance-views" aria-label="Finance view">
+        <Link
+          href={viewHref(false)}
+          scroll={false}
+          aria-current={!creditView ? "page" : undefined}
+        >
+          Overview
+        </Link>
+        <Link
+          href={viewHref(true)}
+          scroll={false}
+          aria-current={creditView ? "page" : undefined}
+        >
+          Credit age
+        </Link>
       </nav>
-      <DataTable
-        endpoint="/finance"
-        label="Finance bills"
-        defaultSort="date"
-        defaultStatus="accepted"
-        dates
-        statuses={[
-          ["accepted", "Accepted"],
-          ["pending", "Drafts"],
-          ["all", "All active"],
-        ]}
-        extra={{ from, to }}
-        columns={columns}
-        renderSummary={(data: FinanceReport) => <Summary report={data} />}
-      />
+      {!creditView && (
+        <nav className="finance-periods" aria-label="Finance period">
+          {presets.map(([label, start, end]) => (
+            <Link
+              key={label}
+              className={`button ${from === start && to === end ? "active" : ""}`}
+              href={period(start, end)}
+              scroll={false}
+            >
+              {label}
+            </Link>
+          ))}
+        </nav>
+      )}
+      {creditView ? (
+        <DataTable
+          key="credit"
+          endpoint="/finance/credit-age"
+          label="Credit bills"
+          defaultSort="age"
+          extra={{ band }}
+          columns={creditColumns}
+          renderSummary={(report: CreditAgeReport) => (
+            <>
+              <CreditAgeCards report={report} />
+              <div className="finance-section-title credit-age-selection">
+                <div>
+                  <h2>
+                    {creditAgeBands.find((b) => b.key === report.filters.band)
+                      ?.label ||
+                      (report.filters.band === "undated"
+                        ? "Date missing"
+                        : report.filters.band === "future"
+                          ? "Future date"
+                          : "All credit")}
+                  </h2>
+                  <p>
+                    {report.total} {report.total === 1 ? "bill" : "bills"}
+                    {report.filters.q ? " · Search results" : ""}
+                  </p>
+                </div>
+                <strong>{money(report.net)}</strong>
+              </div>
+              {report.incomplete > 0 && (
+                <p className="receipt-warning" role="status">
+                  {report.incomplete} missing amounts excluded from the total.
+                </p>
+              )}
+            </>
+          )}
+        />
+      ) : (
+        <>
+          <CreditAgeOverview today={today} />
+          <DataTable
+            key="overview"
+            endpoint="/finance"
+            label="Finance bills"
+            defaultSort="date"
+            defaultStatus="accepted"
+            dates
+            statuses={[
+              ["accepted", "Accepted"],
+              ["pending", "Drafts"],
+              ["all", "All active"],
+            ]}
+            extra={{ from, to }}
+            columns={columns}
+            renderSummary={(data: FinanceReport) => <Summary report={data} />}
+          />
+        </>
+      )}
     </div>
   );
 }
