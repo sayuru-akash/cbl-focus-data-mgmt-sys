@@ -21,6 +21,7 @@ export type ReceiptLine = {
   mrp?: number;
 };
 export type Receipt = {
+  printCopies?: { count: number; identical: boolean };
   categoryDiscounts?: CategoryDiscounts;
   edited?: boolean;
   reviewed?: boolean;
@@ -123,6 +124,77 @@ const money = (s: string) => Number(s.replace(/,/g, ""));
 export function parseReceipt(
   preview: string,
   uncertain = false,
+): Receipt | null {
+  // Copies have their own header, identity, item table and final summary.
+  // Page headings and repeated product rows alone are never deduplication evidence.
+  const headers = [
+    ...preview.matchAll(/^[ \t]*(?:INVOICE|Delivery Note)[ \t]*$/gm),
+  ];
+  if (headers.length > 1) {
+    const copies = headers.map((h, i) =>
+      preview.slice(h.index, headers[i + 1]?.index ?? preview.length),
+    );
+    const complete = copies.every((copy) => {
+      const gross = [
+        ...copy.matchAll(/^[ \t]*Gross[ \t]*:[ \t]*-?[\d,]+\.\d{2}[ \t]*$/gim),
+      ].at(-1);
+      const net = [
+        ...copy.matchAll(
+          /^[ \t]*Net(?:[ \t]*\(Rs\.?\)|[ \t]+Total[ \t]*\(Rs\.?\))[ \t]*:[ \t]*-?[\d,]+\.\d{2}[ \t]*$/gim,
+        ),
+      ].at(-1);
+      return (
+        gross &&
+        net &&
+        net.index! > gross.index! &&
+        (copy.match(/^[ \t]*Serial No[ \t]*:/gm) || []).length === 1 &&
+        /^[ \t]*Customer[ \t]*:[ \t]*\n[^\n]+/m.test(copy) &&
+        /PRODUCTS.*VAT|SKU\s+UNIT\s+QTY/i.test(copy)
+      );
+    });
+    if (complete) {
+      const signature = (copy: string) => {
+        const net = [
+          ...copy.matchAll(
+            /^[ \t]*Net(?:[ \t]*\(Rs\.?\)|[ \t]+Total[ \t]*\(Rs\.?\))[ \t]*:[ \t]*-?[\d,]+\.\d{2}[ \t]*$/gim,
+          ),
+        ].at(-1)!;
+        return (
+          copy
+            .slice(0, net.index! + net[0].length)
+            .split("\n")
+            // Distributor/customer and original/duplicate labels are presentation only.
+            .filter(
+              (line) =>
+                !/^[ \t]*\[(?:ORIGINAL|DUPLICATE)\][ \t]*(?:(?:DISTRIBUTOR|CUSTOMER)[ \t]+)?COPY[ \t]*$/i.test(
+                  line,
+                ),
+            )
+            .map((line) => line.trim().replace(/[ \t]+/g, " "))
+            .filter(Boolean)
+            .join("\n")
+        );
+      };
+      const identical = copies.every(
+        (copy) => signature(copy) === signature(copies[0]),
+      );
+      const receipt = parseSingleReceipt(copies[0], uncertain);
+      if (receipt) {
+        receipt.printCopies = { count: copies.length, identical };
+        if (!identical)
+          receipt.warnings.push(
+            "Printed copies differ. Only the first copy was extracted. Compare the original copies before accepting.",
+          );
+      }
+      return receipt;
+    }
+  }
+  return parseSingleReceipt(preview, uncertain);
+}
+
+function parseSingleReceipt(
+  preview: string,
+  uncertain: boolean,
 ): Receipt | null {
   const number = preview.match(/^\s*Serial No\s*:\s*(\d+)\s*$/m)?.[1];
   const shop = preview.match(/^\s*Customer\s*:\s*\n([^\n]+)/m)?.[1]?.trim();
