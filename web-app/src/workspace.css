@@ -1722,6 +1722,7 @@ button.primary:hover {
 }
 @media (max-width: 640px) {
   .finance-credit-view .grid-tools {
+    display: flex;
     flex-wrap: nowrap;
   }
   .finance-credit-view .grid-tools > .search {
