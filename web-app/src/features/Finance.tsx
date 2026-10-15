@@ -16,6 +16,7 @@ import type { FinanceReport } from "../../server/finance";
 import type { CreditAgeReport } from "../../server/credit-age";
 import { CreditAgeCards } from "../components/CreditAge";
 import { creditAgeBands } from "../../server/credit-age-bands";
+import StockValue from "../components/StockValue";
 const FinanceChart = dynamic(() => import("../components/FinanceChart"), {
   ssr: false,
   loading: () => <div className="finance-chart-empty">Loading chart…</div>,
@@ -258,6 +259,7 @@ function Summary({ report }: { report: FinanceReport }) {
 export default function Finance() {
   const params = useSearchParams();
   const creditView = params.get("view") === "credit";
+  const stockView = params.get("view") === "stock";
   const band = params.get("band") || "all";
   const [today, setToday] = useState(() => colomboDay());
   useEffect(() => {
@@ -295,26 +297,39 @@ export default function Finance() {
   exportParams.set("from", from);
   exportParams.set("to", to);
   if (!exportParams.has("status")) exportParams.set("status", "accepted");
-  const viewHref = (credit: boolean) => {
+  const viewHref = (view: "overview" | "credit" | "stock") => {
     const next = new URLSearchParams(params);
-    for (const key of ["view", "band", "q", "sort", "dir", "page"])
+    for (const key of [
+      "view",
+      "band",
+      "q",
+      "sort",
+      "dir",
+      "page",
+      "status",
+      "payment",
+    ])
       next.delete(key);
-    if (credit) next.set("view", "credit");
+    if (view !== "overview") next.set("view", view);
     return `/finance${next.size ? "?" + next : ""}`;
   };
   return (
-    <div className={`finance-page${creditView ? " finance-credit-view" : ""}`}>
+    <div
+      className={`finance-page${creditView ? " finance-credit-view" : ""}${stockView ? " finance-stock-view" : ""}`}
+    >
       <header className="page-header">
         <div>
           <h1>Finance</h1>
-          <p>By bill date · Sri Lanka</p>
+          <p>{stockView ? "Current stock" : "By bill date · Sri Lanka"}</p>
         </div>
         <a
           className="button"
           href={
-            creditView
-              ? `/api/finance/credit-age/export?${new URLSearchParams({ band, q: params.get("q") || "", sort: params.get("sort") || "age", dir: params.get("dir") || "desc" })}`
-              : `/api/finance/export?${exportParams}`
+            stockView
+              ? `/api/finance/stock-value/export?${new URLSearchParams({ status: params.get("status") || "all", q: params.get("q") || "", sort: params.get("sort") || "name", dir: params.get("dir") || "asc" })}`
+              : creditView
+                ? `/api/finance/credit-age/export?${new URLSearchParams({ band, q: params.get("q") || "", sort: params.get("sort") || "age", dir: params.get("dir") || "desc" })}`
+                : `/api/finance/export?${exportParams}`
           }
           download
         >
@@ -324,21 +339,28 @@ export default function Finance() {
       </header>
       <nav className="finance-views" aria-label="Finance view">
         <Link
-          href={viewHref(false)}
+          href={viewHref("overview")}
           scroll={false}
-          aria-current={!creditView ? "page" : undefined}
+          aria-current={!creditView && !stockView ? "page" : undefined}
         >
           Overview
         </Link>
         <Link
-          href={viewHref(true)}
+          href={viewHref("credit")}
           scroll={false}
           aria-current={creditView ? "page" : undefined}
         >
           Credit age
         </Link>
+        <Link
+          href={viewHref("stock")}
+          scroll={false}
+          aria-current={stockView ? "page" : undefined}
+        >
+          Stock value
+        </Link>
       </nav>
-      {!creditView && (
+      {!creditView && !stockView && (
         <nav className="finance-periods" aria-label="Finance period">
           {presets.map(([label, start, end]) => (
             <Link
@@ -352,7 +374,9 @@ export default function Finance() {
           ))}
         </nav>
       )}
-      {creditView ? (
+      {stockView ? (
+        <StockValue />
+      ) : creditView ? (
         <DataTable
           key="credit"
           endpoint="/finance/credit-age"

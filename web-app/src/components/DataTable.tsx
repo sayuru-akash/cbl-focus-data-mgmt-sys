@@ -27,6 +27,7 @@ export default function DataTable({
   columns,
   label,
   statuses,
+  statusLabel,
   dates = false,
   defaultSort,
   defaultStatus = "all",
@@ -39,6 +40,7 @@ export default function DataTable({
   columns: ColumnDef<Row, any>[];
   label: string;
   statuses?: [string, string][];
+  statusLabel?: string;
   dates?: boolean;
   defaultSort: string;
   defaultStatus?: string;
@@ -159,7 +161,7 @@ export default function DataTable({
         </label>
         {statuses && (
           <label className="filter-label">
-            {label === "Items" ? "Stock status" : "Status"}
+            {statusLabel || (label === "Items" ? "Stock status" : "Status")}
             <select
               value={status}
               onChange={(e) => update({ status: e.target.value })}

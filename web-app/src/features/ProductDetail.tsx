@@ -22,6 +22,15 @@ export function ProductDetail({ id }: { id: string }) {
     [busy, setBusy] = useState(false);
   const item = data.data,
     history = params.get("tab") === "history";
+  const back = params.get("returnTo");
+  const financeReturn =
+    back && /^\/finance(?:\?|$)/.test(back) && !back.includes("\\") ? back : "";
+  const tabHref = (showHistory: boolean) => {
+    const next = new URLSearchParams(params);
+    if (showHistory) next.set("tab", "history");
+    else next.delete("tab");
+    return `/stock/items/${id}${next.size ? "?" + next : ""}`;
+  };
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
@@ -64,8 +73,8 @@ export function ProductDetail({ id }: { id: string }) {
   }
   return (
     <>
-      <Link className="back-link" href="/stock">
-        Back to stock
+      <Link className="back-link" href={financeReturn || "/stock"}>
+        {financeReturn ? "Back to Finance" : "Back to stock"}
       </Link>
       <ErrorText message={data.error?.message || ""} />
       {item && (
@@ -131,16 +140,10 @@ export function ProductDetail({ id }: { id: string }) {
             </details>
           )}
           <div className="tabs">
-            <Link
-              className={!history ? "active" : ""}
-              href={`/stock/items/${id}`}
-            >
+            <Link className={!history ? "active" : ""} href={tabHref(false)}>
               Batches
             </Link>
-            <Link
-              className={history ? "active" : ""}
-              href={`/stock/items/${id}?tab=history`}
-            >
+            <Link className={history ? "active" : ""} href={tabHref(true)}>
               History
             </Link>
           </div>

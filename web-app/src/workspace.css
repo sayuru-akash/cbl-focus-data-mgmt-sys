@@ -1759,3 +1759,50 @@ button.primary:hover {
     right: 16px;
   }
 }
+
+.stock-value-cards {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.stock-value-item {
+  display: grid;
+  gap: 4px;
+}
+.stock-value-item small,
+.stock-value-quantity small,
+.stock-value-amount small {
+  color: #697589;
+  font-size: 12px;
+}
+.stock-value-amount {
+  display: grid;
+  gap: 4px;
+  white-space: nowrap;
+}
+.stock-value-quantity {
+  white-space: nowrap;
+}
+.stock-value-quantity .finance-review {
+  margin-left: 8px;
+}
+.finance-stock-view .data-grid td:not([data-column="name"]) {
+  min-width: 140px;
+}
+@media (max-width: 640px) {
+  .finance-views {
+    max-width: 100%;
+  }
+  .finance-views a {
+    padding: 8px 12px;
+  }
+  .finance-stock-view .grid-tools {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .finance-stock-view .grid-tools > .search {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .finance-stock-view .grid-tools > .filter-label {
+    flex: 1;
+  }
+}

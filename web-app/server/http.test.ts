@@ -53,6 +53,10 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
     expect((await fetch(base + "/api/finance/credit-age/export")).status).toBe(
       401,
     );
+    expect((await fetch(base + "/api/finance/stock-value")).status).toBe(401);
+    expect((await fetch(base + "/api/finance/stock-value/export")).status).toBe(
+      401,
+    );
     expect(
       (
         await fetch(base + "/api/intakes/test-draft", {
@@ -80,6 +84,26 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
     expect(login.status).toBe(200);
     const cookie = login.headers.get("set-cookie")!.split(";")[0]!;
     const headers = { Cookie: cookie, Origin: base };
+    const stockReport = await fetch(base + "/api/finance/stock-value", {
+      headers,
+    });
+    expect(stockReport.status).toBe(200);
+    expect(stockReport.headers.get("cache-control")).toContain("no-store");
+    expect((await stockReport.json()).summary).toMatchObject({
+      items: 1,
+      direct: null,
+      rd: null,
+      unpricedLots: 1,
+    });
+    const stockExport = await fetch(base + "/api/finance/stock-value/export", {
+      headers,
+    });
+    expect(stockExport.headers.get("content-type")).toContain("text/csv");
+    expect(await stockExport.text()).toContain('"Chocolate","SKU_1","10"');
+    expect(
+      (await fetch(base + "/api/finance/stock-value?sort=bad", { headers }))
+        .status,
+    ).toBe(400);
     const creditReport = await fetch(base + "/api/finance/credit-age", {
       headers,
     });

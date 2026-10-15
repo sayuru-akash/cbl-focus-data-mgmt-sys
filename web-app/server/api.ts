@@ -11,6 +11,7 @@ import { Intakes } from "./intake";
 import { grid } from "./grid";
 import { finance, financeCsv } from "./finance";
 import { creditAge, creditAgeCsv } from "./credit-age";
+import { stockValue, stockValueCsv } from "./stock-value";
 import { cents } from "./inventory";
 let pending: Promise<{ store: Store; intakes: Intakes }> | undefined;
 export function workspace() {
@@ -303,6 +304,23 @@ async function handleApiResponse(
             .map((lot) => ({ mrp: lot.mrp, remaining: lot.remaining })),
         });
       }
+      if (path === "/api/finance/stock-value/export" && method === "GET") {
+        const report = await stockValue(
+          store,
+          url.searchParams,
+          new Date(),
+          true,
+        );
+        return new Response(stockValueCsv(report), {
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="stock-value-${report.asOf}.csv"`,
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+      if (path === "/api/finance/stock-value" && method === "GET")
+        return json(await stockValue(store, url.searchParams));
       if (path === "/api/finance/credit-age/export" && method === "GET") {
         const report = await creditAge(
           store,
