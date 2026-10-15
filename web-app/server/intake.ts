@@ -19,11 +19,17 @@ const key = (s: string) => s.trim().toUpperCase().replace(/\s+/g, "");
 const finite = (v: unknown) =>
   typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1e8;
 export { lineIssues, draftIssues } from "./intake-validation";
-import { lineIssues, draftIssues, draftValidation } from "./intake-validation";
+import {
+  lineIssues,
+  draftIssues,
+  draftValidation,
+  validSoldQuantity,
+} from "./intake-validation";
 export class Intakes {
   constructor(
     private store: Store,
     private photos?: PhotoStorage,
+    private readPhoto = recognizePhoto,
   ) {}
   static async open(store: Store, photos?: PhotoStorage) {
     const instance = new Intakes(store, photos);
@@ -412,7 +418,7 @@ export class Intakes {
                   blocks: cached.blocks,
                   extracted: extractedPage.parse(cached.extracted),
                 }
-            : await recognizePhoto(
+            : await this.readPhoto(
                 p.object_key && this.photos
                   ? await this.photos.read(p.object_key)
                   : new Uint8Array(p.raw),
@@ -421,7 +427,7 @@ export class Intakes {
             "extracted" in result && result.extracted
               ? parseExtractedPage(result.extracted, p.position)
               : parseSupplierPage(result.blocks, p.position);
-          if (!page.lines.length)
+          if (!page.lines.length && !page.fields.totalsOnly)
             throw new AppError(
               "No items could be read. Use a clearer photo and try again.",
               422,
@@ -538,6 +544,7 @@ export class Intakes {
       p.invoice = string(p.invoice, 100);
       p.document = string(p.document, 100);
       p.reviewed = p.reviewed === true;
+      p.totalsOnly = p.totalsOnly === true;
       for (const v of [p.page, p.count])
         if (v !== null && (!Number.isInteger(v) || v < 1 || v > 20))
           fail("Invalid page number");
@@ -560,9 +567,13 @@ export class Intakes {
       l.reviewed = l.reviewed === true;
       if (!Number.isInteger(l.page) || l.page < 0 || l.page >= d.pages.length)
         fail("Invalid source page");
-      for (const v of [l.sold, l.boxes, l.packSize])
+      for (const v of [l.boxes, l.packSize])
         if (v !== null && (!finite(v) || !Number.isInteger(v)))
           fail("Quantities must be whole numbers");
+      if (l.sold !== null && !validSoldQuantity(l.sold, l.unit))
+        fail(
+          "Invoice quantity must convert to whole packets; only DZ may contain a fraction",
+        );
       for (const v of [l.amount, l.unitPrice, l.mrp]) if (v !== null) cents(v);
       if (l.productId && !(await this.store.product(l.productId)))
         fail("Select an active product");

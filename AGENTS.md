@@ -109,6 +109,7 @@ Sample development normally opens at `http://127.0.0.1:4311`, with the API on po
 ## 6. Business invariants: quantities and money
 
 - User-entered stock quantities, sales quantities, return quantities, box counts and pack sizes must be whole numbers. No decimal quantity controls or fractional quantity acceptance.
+- Exception for supplier evidence: printed DZ quantities may be fractional only when multiplying by 12 produces an exact whole packet count. Preserve the printed quantity and price basis; use a decimal text field without stock steppers. MC and individual-unit quantities remain whole numbers.
 - Preserve the existing scaled internal quantity representation and `units()` conversion. Never compare raw database quantities directly with API display quantities.
 - Use cents and the existing conversion/rounding helpers for money. Do not introduce floating-point ledger arithmetic.
 - Unknown price is `null`, not zero. Preserve the distinction in validation, rendering and calculations.
@@ -190,6 +191,7 @@ Do not approve, reject, reprice, delete or alter live records merely to demonstr
 New deliveries follow one primary intake path: photograph/upload, process, review, receive. Do not introduce an alternative shortcut that bypasses evidence and validation.
 
 - Support multiple pages belonging to one invoice. Keep document numbers separate from tax invoice numbers.
+- A final page with no product rows is valid only with invoice identity, page numbering and visible order/invoice totals. Keep it explicitly marked totals-only for review. Empty item pages and missing pages remain blocked; never invent a product row for a total or discount. A totals-only page cannot replace an item page or make a wholly empty invoice receivable.
 - Preserve page order and detect missing/duplicate pages. Validate supplier identity and invoice-number consistency.
 - Keep per-page processing progress, retryable errors and completed-page caches visible.
 - Preserve the current limits: up to 20 JPG/PNG/WebP photos, 12 MB each and 60 MB total. Change limits only with a justified, tested requirement.

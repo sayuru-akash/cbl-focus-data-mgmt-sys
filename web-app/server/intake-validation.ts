@@ -1,7 +1,19 @@
-import { packFrom, type IntakeDraft, type IntakeLine } from "./supplier-parser";
+import {
+  isTotalsOnlyPage,
+  packFrom,
+  type IntakeDraft,
+  type IntakeLine,
+} from "./supplier-parser";
 const key = (s: string) => s.trim().toUpperCase().replace(/\s+/g, "");
 const finite = (v: unknown) =>
   typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1e8;
+export function validSoldQuantity(value: number | null, unit: string) {
+  return (
+    finite(value) &&
+    (Number.isInteger(value) ||
+      (unit === "DZ" && Number.isSafeInteger(value! * 12)))
+  );
+}
 export function lineIssues(line: IntakeLine): string[] {
   const issues: string[] = [];
   if (!/^[A-Z0-9][A-Z0-9._/-]{1,79}$/i.test(line.code))
@@ -9,8 +21,12 @@ export function lineIssues(line: IntakeLine): string[] {
   if (!line.description.trim()) issues.push("Enter the product description");
   if (!finite(line.boxes) || !line.boxes || !Number.isInteger(line.boxes))
     issues.push("Box count must be a whole number");
-  if (!finite(line.sold) || !line.sold || !Number.isInteger(line.sold))
-    issues.push("Sold quantity must be a whole number");
+  if (!line.sold || !validSoldQuantity(line.sold, line.unit))
+    issues.push(
+      line.unit === "DZ"
+        ? "Dozen quantity must convert to whole packets"
+        : "Sold quantity must be a whole number",
+    );
   if (!["DZ", "MC", "PKT", "EA", "PCS"].includes(line.unit))
     issues.push("Check invoice unit");
   if (
@@ -84,8 +100,21 @@ export function draftIssues(d: IntakeDraft, pages: number): string[] {
     issues.push("Confirm page details and invoice totals");
   if (!d.lines.length)
     issues.push("No items found. Add the missing rows from the photos");
-  if (d.pages.some((_, i) => !d.lines.some((l) => l.page === i)))
+  if (
+    d.pages.some((p, i) => !p.totalsOnly && !d.lines.some((l) => l.page === i))
+  )
     issues.push("Check items on every page");
+  if (
+    d.pages.some(
+      (p, i) =>
+        p.totalsOnly &&
+        (d.lines.some((l) => l.page === i) ||
+          !isTotalsOnlyPage({ ...d, ...p })),
+    )
+  )
+    issues.push(
+      "Check totals-only page: it must be the final page with invoice totals and no product rows",
+    );
   if (d.lines.some((l) => !l.reviewed)) issues.push("Review every item");
   d.lines.forEach((l, i) => {
     for (const issue of lineIssues(l)) issues.push(`Item ${i + 1}: ${issue}`);

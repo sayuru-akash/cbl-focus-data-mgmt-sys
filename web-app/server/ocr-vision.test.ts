@@ -45,7 +45,7 @@ test("vision extraction preserves invoice identity and source pricing without gu
   expect(parsed.lines[0]!.productId).toBe("");
 });
 test("vision extraction rejects missing rows and invalid amounts", () => {
-  expect(() => extractedPage.parse({ ...page, items: [] })).toThrow();
+  expect(() => extractedPage.parse({ ...page, page: 1, items: [] })).toThrow();
   expect(() =>
     extractedPage.parse({ ...page, items: [{ ...page.items[0], sold: -1 }] }),
   ).toThrow();
@@ -215,7 +215,9 @@ test("Gemini accepts only complete schema-valid data and hides provider details"
           {
             finishReason: "STOP",
             content: {
-              parts: [{ text: JSON.stringify({ ...page, items: [] }) }],
+              parts: [
+                { text: JSON.stringify({ ...page, page: 1, items: [] }) },
+              ],
             },
           },
         ],
@@ -237,4 +239,51 @@ test("Gemini accepts only complete schema-valid data and hides provider details"
       expect((error as Error).message).not.toContain("SECRET_PROVIDER_DETAIL");
     }
   }
+});
+
+test("both readers preserve a final totals-only page without inventing products", async () => {
+  const totals = { ...page, page: 5, count: 5, document: "D005", items: [] };
+  const cloud = await readVisionResponse(
+    Response.json({
+      success: true,
+      result: { response: JSON.stringify(totals) },
+    }),
+  );
+  const backup = await readGeminiResponse(
+    Response.json({
+      candidates: [
+        {
+          finishReason: "STOP",
+          content: { parts: [{ text: JSON.stringify(totals) }] },
+        },
+      ],
+    }),
+  );
+  for (const data of [cloud, backup]) {
+    const parsed = parseExtractedPage(data, 4);
+    expect(parsed.lines).toEqual([]);
+    expect(parsed.fields).toMatchObject({
+      page: 5,
+      count: 5,
+      totalsOnly: true,
+      reviewed: false,
+    });
+    expect(parsed.gross).toBe(totals.gross);
+    expect(parsed.discount).toBe(totals.discount);
+    expect(parsed.total).toBe(totals.total);
+  }
+  for (const invalid of [
+    { page: 4 },
+    { count: null },
+    { page: 1, count: 1 },
+    { gross: null },
+    { total: null },
+    { invoice: "" },
+    { supplier: "" },
+    { document: "" },
+    { tin: "" },
+  ])
+    expect(extractedPage.safeParse({ ...totals, ...invalid }).success).toBe(
+      false,
+    );
 });

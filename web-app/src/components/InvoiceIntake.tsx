@@ -748,6 +748,29 @@ export default function InvoiceIntake({
                           </label>
                         ))}
                       </div>
+                      {!draft.lines.some((line) => line.page === page) && (
+                        <label className="intake-check">
+                          <input
+                            type="checkbox"
+                            disabled={busy || locked}
+                            checked={draft.pages[page]!.totalsOnly === true}
+                            onChange={(e) =>
+                              header({
+                                pages: draft.pages.map((p, i) =>
+                                  i === page
+                                    ? {
+                                        ...p,
+                                        totalsOnly: e.target.checked,
+                                        reviewed: false,
+                                      }
+                                    : p,
+                                ),
+                              })
+                            }
+                          />
+                          Final page has totals only, no items
+                        </label>
+                      )}
                       <label className="intake-check">
                         <input
                           type="checkbox"
@@ -933,11 +956,14 @@ export default function InvoiceIntake({
                             />
                           </label>
                           <label>
-                            Sold quantity
+                            Printed quantity
                             <input
-                              type="number"
-                              min="0"
-                              step="1"
+                              type={row.unit === "DZ" ? "text" : "number"}
+                              inputMode={
+                                row.unit === "DZ" ? "decimal" : "numeric"
+                              }
+                              min={row.unit === "DZ" ? undefined : "0"}
+                              step={row.unit === "DZ" ? undefined : "1"}
                               disabled={busy || locked}
                               value={row.sold ?? ""}
                               onChange={(e) =>

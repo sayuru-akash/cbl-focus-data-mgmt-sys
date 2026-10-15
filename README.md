@@ -33,6 +33,8 @@ Draft fields remain editable. Saving keeps the draft open. Accepted bills retain
 
 Drafts never change stock. Drafts can be deleted; received invoices remain read-only. A final confirmation can acknowledge identified review warnings. Invalid quantities, missing MRP, incomplete pages and inconsistent totals must be corrected before posting.
 
+A final totals-only page is kept with the invoice and reviewed without adding an item row. Printed fractional dozens are supported only when they convert exactly to whole packets, such as 0.50 DZ = 6 packets. Boxes, carton counts and stock quantities remain whole numbers. Retrying a failed page reuses completed scans.
+
 ## Inventory rules
 
 - **Whole packets:** quantities and pack sizes are whole numbers. Money is calculated in cents. The internal scaled quantity representation does not permit fractional user quantities.

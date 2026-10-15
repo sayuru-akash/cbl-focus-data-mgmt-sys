@@ -231,9 +231,7 @@ test("the same product from different supplier codes and suppliers reuses one pr
     expect(products[0]!.stock).toBe(27);
     expect(products[0]!.lots.map((l: any) => l.mrp)).toEqual([600, 600, 650]);
     expect(products[0]!.lots.map((l: any) => l.costPrice)).toEqual([
-      1366.67,
-      1366.67,
-      1400,
+      1366.67, 1366.67, 1400,
     ]);
     expect(
       await store.db.query("SELECT count(*) n FROM supplier_products").get(),
@@ -462,12 +460,12 @@ test("concurrent photo retries create one draft and concurrent review saves reje
   }
 });
 
-test("invoice review rejects fractional box and sold quantities", () => {
+test("invoice review rejects fractional boxes and cartons but allows whole-packet dozens", () => {
   expect(lineIssues({ ...line(), boxes: 1.5 })).toContain(
     "Box count must be a whole number",
   );
   expect(
-    lineIssues({ ...line(), sold: 1.5, unit: "DZ", packSize: 12 }),
+    lineIssues({ ...line(), sold: 1.5, unit: "MC", packSize: 12 }),
   ).toContain("Sold quantity must be a whole number");
 });
 
@@ -755,5 +753,189 @@ test("received invoices cannot be deleted, including concurrent receive and dele
     }
   } finally {
     await second.store.db.close();
+  }
+});
+
+test("five-page scan retries only the failed totals page and receives half a dozen as six whole packets", async () => {
+  const { store, id, d } = await setup();
+  let calls = 0;
+  const gross = 59 * 120 + 17129.88;
+  const totals = {
+    supplier: d.supplier,
+    tin: d.tin,
+    invoice: d.number,
+    document: "D005",
+    date: d.date,
+    page: 5,
+    count: 5,
+    rotation: 0 as const,
+    gross,
+    discount: 209.88,
+    total: 24000,
+    items: [],
+  };
+  const intakes = new Intakes(store, undefined, async () => {
+    calls++;
+    if (calls === 1) throw new Error("Reader temporarily unavailable");
+    return {
+      preview: Buffer.from([1]),
+      blocks: [],
+      rotation: 0,
+      extracted: totals,
+      provider: "gemini" as const,
+    };
+  });
+  try {
+    await store.db.query("DELETE FROM intake_pages WHERE intake_id=?").run(id);
+    await store.db
+      .query("UPDATE intakes SET draft=? WHERE id=?")
+      .run(
+        JSON.stringify({ ...d, pages: [], lines: [], headerReviewed: false }),
+        id,
+      );
+    for (let index = 0; index < 5; index++) {
+      const items = Array.from(
+        { length: [16, 16, 14, 14, 0][index] },
+        (_, row) => {
+          const half = index === 3 && row === 12;
+          return {
+            code: half ? "DEMO-HALF" : "DEMO-PACKET",
+            description: half
+              ? "DEMO DARK CHOCOLATE 1800GX6EA"
+              : "DEMO MILK CHOCOLATE 20GX12EA",
+            weight: half ? "1800G" : "20G",
+            boxes: 1,
+            sold: half ? 0.5 : 1,
+            unit: "DZ",
+            unitPrice: half ? 34259.76 : 120,
+            amount: half ? 17129.88 : 120,
+          };
+        },
+      );
+      const extracted = {
+        ...totals,
+        page: index + 1,
+        document: `D00${index + 1}`,
+        gross: null,
+        discount: null,
+        total: null,
+        items,
+      };
+      await store.db
+        .query(
+          "INSERT INTO intake_pages(id,intake_id,position,filename,mime,hash,raw,ocr) VALUES (?,?,?,?,?,?,?,?)",
+        )
+        .run(
+          crypto.randomUUID(),
+          id,
+          index,
+          "page.jpg",
+          "image/jpeg",
+          `h${index}`,
+          new Uint8Array([1]),
+          index < 4
+            ? JSON.stringify({ blocks: [], extracted, provider: "cloudflare" })
+            : null,
+        );
+    }
+    await expect(intakes.process(id)).rejects.toThrow(
+      "Reader temporarily unavailable",
+    );
+    const failed = await intakes.get(id);
+    expect(failed.processing).toBe(false);
+    expect(failed.pages.filter((p: any) => p.processed)).toHaveLength(4);
+    expect(failed.pages[4]!.error).toContain("temporarily unavailable");
+    expect((await store.products()).length).toBe(0);
+    const scanned = await intakes.process(id);
+    expect(calls).toBe(2);
+    expect(scanned.draft.lines).toHaveLength(60);
+    expect(scanned.draft.pages).toHaveLength(5);
+    expect(scanned.draft.pages[4]).toMatchObject({
+      totalsOnly: true,
+      reviewed: false,
+    });
+    expect(scanned.pages.every((p: any) => p.processed && !p.error)).toBe(true);
+    expect(scanned.draft.total).toBe(24000);
+    const reviewed: IntakeDraft = structuredClone(scanned.draft);
+    reviewed.headerReviewed = true;
+    reviewed.pages.forEach((p) => (p.reviewed = true));
+    reviewed.lines.forEach((l) => {
+      l.reviewed = true;
+      l.mrp = 100;
+    });
+    expect(draftIssues(reviewed, 5)).toEqual([]);
+    const saved = await intakes.save(id, {
+      revision: scanned.revision,
+      draft: reviewed,
+    });
+    const received = await intakes.receive(id, saved.revision);
+    expect(received.status).toBe("received");
+    const products = await store.products();
+    expect(products).toHaveLength(2);
+    expect(products.map((p) => p.stock).sort((a, b) => a - b)).toEqual([
+      6, 708,
+    ]);
+    expect(products.every((p) => Number.isInteger(p.stock))).toBe(true);
+    expect(
+      products
+        .flatMap((p) => p.lots)
+        .every((l) => Number.isInteger(l.remaining) && Number.isInteger(l.received_qty)),
+    ).toBe(true);
+    await intakes.receive(id, saved.revision);
+    expect(
+      (await store.db.query("SELECT count(*) n FROM purchases").get()).n,
+    ).toBe(1);
+  } finally {
+    await store.db.close();
+  }
+});
+
+test("totals-only flags cannot hide missing item pages, mixed pages or a completely empty invoice", async () => {
+  const { store, d } = await setup();
+  try {
+    d.pages[0]!.count = 2;
+    d.pages.push({
+      page: 2,
+      count: 2,
+      invoice: d.number,
+      document: "D2",
+      reviewed: true,
+      totalsOnly: true,
+    });
+    expect(draftIssues(d, 2)).toEqual([]);
+    d.pages[1]!.totalsOnly = false;
+    expect(draftIssues(d, 2)).toContain("Check items on every page");
+    d.pages[1]!.totalsOnly = true;
+    const noRows = { ...d, lines: [] };
+    expect(draftIssues(noRows, 2)).toContain(
+      "No items found. Add the missing rows from the photos",
+    );
+    d.pages[0]!.totalsOnly = true;
+    expect(draftIssues(d, 2).join(" ")).toContain("Check totals-only page");
+    d.pages[0]!.totalsOnly = false;
+    d.pages[1]!.page = 1;
+    expect(draftIssues(d, 2).join(" ")).toContain("Check totals-only page");
+    const half = {
+      ...line(),
+      description: "DEMO CHOCOLATE 1800GX6EA",
+      boxes: 1,
+      sold: 0.5,
+      unit: "DZ",
+      packSize: 12,
+      unitPrice: 34259.76,
+      amount: 17129.88,
+    };
+    expect(lineIssues(half)).toEqual([]);
+    expect(lineIssues({ ...half, sold: 0.51 }).join(" ")).toContain(
+      "whole packets",
+    );
+    expect(
+      lineIssues({ ...half, unit: "MC", packSize: 6 }).join(" "),
+    ).toContain("whole number");
+    expect(
+      lineIssues({ ...half, unit: "PKT", packSize: 1 }).join(" "),
+    ).toContain("whole number");
+  } finally {
+    await store.db.close();
   }
 });

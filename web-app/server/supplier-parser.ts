@@ -29,7 +29,35 @@ export type PageFields = {
   invoice: string;
   document: string;
   reviewed: boolean;
+  totalsOnly?: boolean;
 };
+// Empty extraction is valid only with evidence of a final invoice totals page.
+export function isTotalsOnlyPage(data: {
+  supplier: string;
+  tin: string;
+  invoice: string;
+  document: string;
+  page: number | null;
+  count: number | null;
+  gross: number | null;
+  total: number | null;
+}) {
+  return Boolean(
+    data.supplier.trim() &&
+    data.tin.trim() &&
+    data.invoice.trim() &&
+    data.document.trim() &&
+    data.count &&
+    data.count > 1 &&
+    data.page === data.count &&
+    data.gross !== null &&
+    Number.isFinite(data.gross) &&
+    data.gross >= 0 &&
+    data.total !== null &&
+    Number.isFinite(data.total) &&
+    data.total >= 0,
+  );
+}
 export type IntakeDraft = {
   supplier: string;
   tin: string;
@@ -298,6 +326,18 @@ export function parseSupplierPage(blocks: OcrBlock[], index: number) {
       invoice,
       document: doc,
       reviewed: false,
+      totalsOnly:
+        !lines.length &&
+        isTotalsOnlyPage({
+          supplier,
+          tin,
+          invoice,
+          document: doc,
+          page: pageMatch ? Number(pageMatch[1]) : null,
+          count: pageMatch ? Number(pageMatch[2]) : null,
+          gross: gross ? readMoney(gross.text) : null,
+          total: total ? readMoney(total.text) : null,
+        }),
     } as PageFields,
     lines,
     gross: gross ? readMoney(gross.text) : null,
