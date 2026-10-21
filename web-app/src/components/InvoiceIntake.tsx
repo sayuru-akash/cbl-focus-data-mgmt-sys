@@ -945,9 +945,8 @@ export default function InvoiceIntake({
                           <label>
                             Boxes
                             <input
-                              type="number"
-                              min="0"
-                              step="1"
+                              type="text"
+                              inputMode="decimal"
                               disabled={busy || locked}
                               value={row.boxes ?? ""}
                               onChange={(e) =>

@@ -50,9 +50,7 @@ export function isTotalsOnlyPage(data: {
     data.count &&
     data.count > 1 &&
     data.page === data.count &&
-    data.gross !== null &&
-    Number.isFinite(data.gross) &&
-    data.gross >= 0 &&
+    (data.gross === null || (Number.isFinite(data.gross) && data.gross >= 0)) &&
     data.total !== null &&
     Number.isFinite(data.total) &&
     data.total >= 0,
@@ -101,13 +99,13 @@ export function packFrom(description: string, unit: string) {
     return { size: null, evidence: "Check the invoice unit" };
   // Weight is not a pack count. Read only an explicit packaging suffix.
   const matches = [
-    ...text.matchAll(/\d+(?:\.\d+)?(?:KG|G|C|ML|L)((?:X\d+)+)EA\b/g),
+    ...text.matchAll(/\d+(?:\.\d+)?(?:KG|G|C|ML|L)((?:X\d+)+)(EA|DZ)\b/g),
   ];
   const match = matches[0];
   if (!match || matches.length > 1)
     return { size: null, evidence: "Pack size is unclear in the photo" };
   const values = match[1]!.slice(1).split("X").map(Number);
-  const size = values.reduce((a, b) => a * b, 1);
+  const size = values.reduce((a, b) => a * b, match[2] === "DZ" ? 12 : 1);
   return { size: size > 0 && size <= 10000 ? size : null, evidence: match[0] };
 }
 const center = (b: OcrBlock) => b.y + b.height / 2;

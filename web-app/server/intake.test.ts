@@ -460,13 +460,134 @@ test("concurrent photo retries create one draft and concurrent review saves reje
   }
 });
 
-test("invoice review rejects fractional boxes and cartons but allows whole-packet dozens", () => {
+test("invoice review rejects unsupported fractional boxes and cartons", () => {
   expect(lineIssues({ ...line(), boxes: 1.5 })).toContain(
-    "Box count must be a whole number",
+    "Boxes must match whole packets in the printed pack size",
   );
   expect(
     lineIssues({ ...line(), sold: 1.5, unit: "MC", packSize: 12 }),
   ).toContain("Sold quantity must be a whole number");
+});
+
+test("partial printed boxes require explicit carton evidence and whole-packet dozens", () => {
+  const partial = {
+    ...line(),
+    description: "DEMO CRISPIES 45GX12DZ",
+    boxes: 1.75,
+    sold: 21,
+    unit: "DZ",
+    packSize: 12,
+    unitPrice: 120,
+    amount: 2520,
+  };
+  expect(packFrom(partial.description, "MC").size).toBe(144);
+  expect(packFrom("DEMO 45GX2X6DZ", "MC").size).toBe(144);
+  expect(lineIssues(partial)).toEqual([]);
+  for (const invalid of [
+    { boxes: 1.74 },
+    { boxes: 1.751 },
+    { description: "DEMO 45G" },
+    { sold: 21.01 },
+    { packSize: 1 },
+    { unit: "MC" },
+  ])
+    expect(lineIssues({ ...partial, ...invalid }).length).toBeGreaterThan(0);
+});
+
+test("shuffled pages combine separate printed totals and receive partial boxes as whole packets once", async () => {
+  const { store, intakes, id, d } = await setup();
+  try {
+    await store.db.query("DELETE FROM intake_pages WHERE intake_id=?").run(id);
+    await store.db
+      .query("UPDATE intakes SET draft=? WHERE id=?")
+      .run(
+        JSON.stringify({ ...d, lines: [], pages: [], headerReviewed: false }),
+        id,
+      );
+    for (const [position, pageNumber] of [3, 2, 1].entries()) {
+      const extracted = {
+        supplier: d.supplier,
+        tin: d.tin,
+        invoice: d.number,
+        document: `PAGE${pageNumber}`,
+        date: d.date,
+        page: pageNumber,
+        count: 3,
+        rotation: 0,
+        gross: pageNumber === 2 ? 2880 : null,
+        discount: pageNumber === 3 ? 80 : null,
+        total: pageNumber === 3 ? 2800 : null,
+        items:
+          pageNumber === 3
+            ? []
+            : [
+                {
+                  code: `DEMO${pageNumber}`,
+                  description: "DEMO CRISPIES 45GX12DZ",
+                  weight: "45G",
+                  boxes: pageNumber === 1 ? 1.75 : 0.25,
+                  sold: pageNumber === 1 ? 21 : 3,
+                  unit: "DZ",
+                  unitPrice: 120,
+                  amount: pageNumber === 1 ? 2520 : 360,
+                },
+              ],
+      };
+      await store.db
+        .query(
+          "INSERT INTO intake_pages(id,intake_id,position,filename,mime,hash,raw,ocr) VALUES (?,?,?,?,?,?,?,?)",
+        )
+        .run(
+          crypto.randomUUID(),
+          id,
+          position,
+          "page.jpg",
+          "image/jpeg",
+          `partial-${position}`,
+          new Uint8Array([1]),
+          JSON.stringify({ blocks: [], extracted, provider: "cloudflare" }),
+        );
+    }
+    const scanned = await intakes.process(id);
+    expect(scanned.draft).toMatchObject({
+      gross: 2880,
+      discount: 80,
+      total: 2800,
+    });
+    expect(scanned.draft.pages.map((p: any) => p.page)).toEqual([3, 2, 1]);
+    expect(scanned.draft.lines.map((l: any) => l.page)).toEqual([1, 2]);
+    const reviewed = structuredClone(scanned.draft);
+    reviewed.headerReviewed = true;
+    reviewed.pages.forEach((p: any) => (p.reviewed = true));
+    reviewed.lines.forEach((l: any) => {
+      l.reviewed = true;
+      l.mrp = 100;
+    });
+    expect(draftIssues(reviewed, 3)).toEqual([]);
+    const invalid = structuredClone(reviewed);
+    invalid.lines[0]!.boxes = 0.24;
+    await expect(
+      intakes.save(id, { revision: scanned.revision, draft: invalid }),
+    ).rejects.toThrow("Boxes must match whole packets");
+    expect((await intakes.get(id)).revision).toBe(scanned.revision);
+    const saved = await intakes.save(id, {
+      revision: scanned.revision,
+      draft: reviewed,
+    });
+    expect(saved.blockers).toEqual([]);
+    await intakes.receive(id, saved.revision);
+    const products = await store.products();
+    expect(products).toHaveLength(1);
+    expect(products[0]!.stock).toBe(288);
+    expect(products[0]!.lots).toHaveLength(2);
+    await intakes.receive(id, saved.revision);
+    expect((await store.products())[0]!.stock).toBe(288);
+    expect(
+      (await store.db.query("SELECT count(*) n FROM purchases").get()).n,
+    ).toBe(1);
+  } finally {
+    await store.db.close();
+  }
 });
 
 test("invoice warnings require explicit acknowledgement and retain an immutable receipt audit", async () => {
@@ -879,7 +1000,10 @@ test("five-page scan retries only the failed totals page and receives half a doz
     expect(
       products
         .flatMap((p) => p.lots)
-        .every((l) => Number.isInteger(l.remaining) && Number.isInteger(l.received_qty)),
+        .every(
+          (l) =>
+            Number.isInteger(l.remaining) && Number.isInteger(l.received_qty),
+        ),
     ).toBe(true);
     await intakes.receive(id, saved.revision);
     expect(

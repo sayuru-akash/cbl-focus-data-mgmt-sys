@@ -24,6 +24,7 @@ import {
   draftIssues,
   draftValidation,
   validSoldQuantity,
+  validBoxQuantity,
 } from "./intake-validation";
 export class Intakes {
   constructor(
@@ -479,16 +480,22 @@ export class Intakes {
           throw error;
         }
       }
-      const first = parsed[0]!,
-        last = parsed.find((p) => p.total !== null) || parsed.at(-1)!;
+      const ordered = [...parsed].sort(
+        (a, b) => (a.fields.page ?? 21) - (b.fields.page ?? 21),
+      );
+      // Order value, discount and final amount can be printed on different
+      // pages. Pick each visible field independently in printed page order.
+      const totalsOrder = [...ordered].reverse();
+      const printedTotal = (field: "gross" | "discount" | "total") =>
+        totalsOrder.find((p) => p[field] !== null)?.[field] ?? null;
       const draft: IntakeDraft = {
-        supplier: first.supplier,
-        tin: first.tin,
-        number: first.invoice,
-        date: first.date,
-        gross: last.gross,
-        discount: last.discount,
-        total: last.total,
+        supplier: ordered.find((p) => p.supplier)?.supplier || "",
+        tin: ordered.find((p) => p.tin)?.tin || "",
+        number: ordered.find((p) => p.invoice)?.invoice || "",
+        date: ordered.find((p) => p.date)?.date || "",
+        gross: printedTotal("gross"),
+        discount: printedTotal("discount"),
+        total: printedTotal("total"),
         pages: parsed.map((p) => p.fields),
         lines: parsed.flatMap((p) => p.lines),
         headerReviewed: false,
@@ -567,9 +574,11 @@ export class Intakes {
       l.reviewed = l.reviewed === true;
       if (!Number.isInteger(l.page) || l.page < 0 || l.page >= d.pages.length)
         fail("Invalid source page");
-      for (const v of [l.boxes, l.packSize])
+      for (const v of [l.packSize])
         if (v !== null && (!finite(v) || !Number.isInteger(v)))
           fail("Quantities must be whole numbers");
+      if (l.boxes !== null && !validBoxQuantity(l))
+        fail("Boxes must match whole packets in the printed pack size");
       if (l.sold !== null && !validSoldQuantity(l.sold, l.unit))
         fail(
           "Invoice quantity must convert to whole packets; only DZ may contain a fraction",

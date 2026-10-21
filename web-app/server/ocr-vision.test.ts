@@ -242,7 +242,14 @@ test("Gemini accepts only complete schema-valid data and hides provider details"
 });
 
 test("both readers preserve a final totals-only page without inventing products", async () => {
-  const totals = { ...page, page: 5, count: 5, document: "D005", items: [] };
+  const totals = {
+    ...page,
+    page: 5,
+    count: 5,
+    document: "D005",
+    gross: null,
+    items: [],
+  };
   const cloud = await readVisionResponse(
     Response.json({
       success: true,
@@ -276,7 +283,7 @@ test("both readers preserve a final totals-only page without inventing products"
     { page: 4 },
     { count: null },
     { page: 1, count: 1 },
-    { gross: null },
+    { gross: -1 },
     { total: null },
     { invoice: "" },
     { supplier: "" },

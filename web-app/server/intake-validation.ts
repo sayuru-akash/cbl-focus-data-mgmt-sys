@@ -14,13 +14,30 @@ export function validSoldQuantity(value: number | null, unit: string) {
       (unit === "DZ" && Number.isSafeInteger(value! * 12)))
   );
 }
+// Partial cartons on supplier evidence are not fractional stock. Require an
+// explicit carton size and an exact, whole-packet DZ quantity before accepting.
+export function validBoxQuantity(line: IntakeLine) {
+  if (!finite(line.boxes)) return false;
+  if (Number.isInteger(line.boxes)) return true;
+  const carton = packFrom(line.description, "MC").size;
+  const packets = (line.sold ?? 0) * (line.packSize ?? 0);
+  return Boolean(
+    line.unit === "DZ" &&
+    line.packSize === 12 &&
+    validSoldQuantity(line.sold, line.unit) &&
+    packets > 0 &&
+    Number.isSafeInteger(packets) &&
+    carton &&
+    Math.abs(line.boxes! * carton - packets) < 1e-7,
+  );
+}
 export function lineIssues(line: IntakeLine): string[] {
   const issues: string[] = [];
   if (!/^[A-Z0-9][A-Z0-9._/-]{1,79}$/i.test(line.code))
     issues.push("Check product code");
   if (!line.description.trim()) issues.push("Enter the product description");
-  if (!finite(line.boxes) || !line.boxes || !Number.isInteger(line.boxes))
-    issues.push("Box count must be a whole number");
+  if (!line.boxes || !validBoxQuantity(line))
+    issues.push("Boxes must match whole packets in the printed pack size");
   if (!line.sold || !validSoldQuantity(line.sold, line.unit))
     issues.push(
       line.unit === "DZ"
