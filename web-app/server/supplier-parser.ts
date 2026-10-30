@@ -99,7 +99,9 @@ export function packFrom(description: string, unit: string) {
     return { size: null, evidence: "Check the invoice unit" };
   // Weight is not a pack count. Read only an explicit packaging suffix.
   const matches = [
-    ...text.matchAll(/\d+(?:\.\d+)?(?:KG|G|C|ML|L)((?:X\d+)+)(EA|DZ)\b/g),
+    ...text.matchAll(
+      /\d+(?:\.\d+)?(?:KG|G|C|ML|L)(?:\.?NET\.?)?((?:X\d+)+)(EA|DZ)\b/g,
+    ),
   ];
   const match = matches[0];
   if (!match || matches.length > 1)

@@ -14,8 +14,22 @@ export function validSoldQuantity(value: number | null, unit: string) {
       (unit === "DZ" && Number.isSafeInteger(value! * 12)))
   );
 }
-// Partial cartons on supplier evidence are not fractional stock. Require an
-// explicit carton size and an exact, whole-packet DZ quantity before accepting.
+function matchesPrintedBoxes(line: IntakeLine, carton: number) {
+  const packets = (line.sold ?? 0) * (line.packSize ?? 0);
+  if (Math.abs(line.boxes! * carton - packets) < 1e-7) return true;
+  // Supplier box counts are printed to two decimals (e.g. 4/6 = 0.67).
+  // Check the rounded evidence; stock always comes from exact sold units.
+  return Boolean(
+    line.unit === "DZ" &&
+    line.packSize === 12 &&
+    !Number.isInteger(line.boxes) &&
+    validSoldQuantity(line.sold, line.unit) &&
+    packets > 0 &&
+    Number.isSafeInteger(packets) &&
+    Math.abs(line.boxes! * 100 - Math.round((packets / carton) * 100)) < 1e-7,
+  );
+}
+// Partial cartons are source evidence, never the basis for stock quantities.
 export function validBoxQuantity(line: IntakeLine) {
   if (!finite(line.boxes)) return false;
   if (Number.isInteger(line.boxes)) return true;
@@ -28,7 +42,7 @@ export function validBoxQuantity(line: IntakeLine) {
     packets > 0 &&
     Number.isSafeInteger(packets) &&
     carton &&
-    Math.abs(line.boxes! * carton - packets) < 1e-7,
+    matchesPrintedBoxes(line, carton),
   );
 }
 export function lineIssues(line: IntakeLine): string[] {
@@ -62,7 +76,7 @@ export function lineIssues(line: IntakeLine): string[] {
     line.boxes &&
     line.sold &&
     line.packSize &&
-    Math.abs(line.boxes * packaging - line.sold * line.packSize) > 0.001
+    !matchesPrintedBoxes(line, packaging)
   )
     issues.push("Boxes and description pack size do not match packet quantity");
   if (line.unit === "MC" && line.boxes !== line.sold)

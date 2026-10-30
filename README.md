@@ -33,7 +33,7 @@ Draft fields remain editable. Saving keeps the draft open. Accepted bills retain
 
 Drafts never change stock. Drafts can be deleted; received invoices remain read-only. A final confirmation can acknowledge identified review warnings. Invalid quantities, missing MRP, incomplete pages and inconsistent totals must be corrected before posting.
 
-A final totals-only page is kept with the invoice and reviewed without adding an item row. Printed fractional dozens are supported only when they convert exactly to whole packets, such as 0.50 DZ = 6 packets. Printed partial boxes on DZ lines are preserved only when explicit carton packaging reconciles to whole packets, such as 1.75 boxes of 12 DZ = 21 DZ = 252 packets. MC quantities and stock remain whole numbers. Order value, discount and final total can come from separate pages; missing fields are never copied or calculated by the reader. Retrying a failed page reuses completed scans.
+A final totals-only page is kept with the invoice and reviewed without adding an item row. Printed fractional dozens are supported only when they convert exactly to whole packets, such as 0.50 DZ = 6 packets. Printed partial boxes on DZ lines are preserved only when explicit carton packaging reconciles to whole packets, such as 1.75 boxes of 12 DZ = 21 DZ = 252 packets. Printed two-decimal box rounding is supported (4/6 carton prints as 0.67); the exact sold quantity determines stock. MC quantities and stock remain whole numbers. Order value, discount and final total can come from separate pages; missing fields are never copied or calculated by the reader. Retrying a failed page reuses completed scans.
 
 ## Inventory rules
 

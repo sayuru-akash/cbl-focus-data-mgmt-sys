@@ -1063,3 +1063,72 @@ test("totals-only flags cannot hide missing item pages, mixed pages or a complet
     await store.db.close();
   }
 });
+
+test("two-decimal printed boxes reconcile to exact DZ quantities without fractional stock", async () => {
+  const { store, intakes, id, d } = await setup();
+  try {
+    d.lines = [
+      [0.67, 8],
+      [0.33, 4],
+      [0.17, 2],
+      [0.08, 1],
+    ].map(([boxes, sold], i) => ({
+      ...line(`DEMO${i}`),
+      description: "DEMO CHOCOLATE 45GX12DZ",
+      weight: "45G",
+      boxes: boxes!,
+      sold: sold!,
+      unit: "DZ",
+      packSize: 12,
+      unitPrice: 120,
+      amount: sold! * 120,
+    }));
+    expect(packFrom("DEMO DARK 100G.NETX12DZ", "MC").size).toBe(144);
+    expect(
+      lineIssues({ ...d.lines[3]!, description: "DEMO DARK 100G.NETX12DZ" }),
+    ).toEqual([]);
+    d.gross = d.total = 1800;
+    d.discount = 0;
+    expect(draftIssues(d, 1)).toEqual([]);
+    for (const [boxes, sold] of [
+      [0.67, 4],
+      [0.33, 2],
+      [0.17, 1],
+    ]) {
+      expect(
+        lineIssues({
+          ...d.lines[0]!,
+          description: "DEMO CHOCOLATE 45GX6DZ",
+          boxes: boxes!,
+          sold: sold!,
+          amount: sold! * 120,
+        }),
+      ).toEqual([]);
+    }
+    for (const invalid of [
+      { boxes: 0.68 },
+      { boxes: 0.66 },
+      { boxes: 0.675 },
+      { boxes: 1 },
+      { description: "DEMO CHOCOLATE 45G" },
+      { sold: 8.01 },
+      { unit: "MC" },
+      { unit: "PKT" },
+      { packSize: 1 },
+    ])
+      expect(lineIssues({ ...d.lines[0]!, ...invalid }).length).toBeGreaterThan(
+        0,
+      );
+    const saved = await intakes.save(id, { revision: 1, draft: d });
+    expect(
+      (await intakes.get(id)).draft.lines.map((l: any) => l.boxes),
+    ).toEqual([0.67, 0.33, 0.17, 0.08]);
+    expect(await store.products()).toHaveLength(0);
+    await intakes.receive(id, saved.revision);
+    expect((await store.products())[0]!.stock).toBe(180);
+    await intakes.receive(id, saved.revision);
+    expect((await store.products())[0]!.stock).toBe(180);
+  } finally {
+    await store.db.close();
+  }
+});
