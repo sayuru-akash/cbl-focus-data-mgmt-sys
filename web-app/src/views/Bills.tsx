@@ -24,7 +24,8 @@ import {
   paymentLabels,
   type PaymentType,
 } from "../../server/payment";
-import ProductPicker from "../components/ProductPicker";
+import ProductPicker, { type ProductOption } from "../components/ProductPicker";
+import { salesUnitCompatible } from "../../server/sales-units";
 import { api, date, type Bill, type Product } from "../api";
 import { Empty, SearchBox, ErrorText, Modal } from "../components/UI";
 import InvoiceIntake from "../components/InvoiceIntake";
@@ -79,6 +80,11 @@ export default function BillReview({
   const [reloadKey, setReloadKey] = useState(0);
   const [deleteStep, setDeleteStep] = useState(0);
   const [deleteText, setDeleteText] = useState("");
+  const [unitReview, setUnitReview] = useState<{
+    index: number;
+    product: ProductOption;
+  } | null>(null);
+  const itemTriggers = useRef(new Map<number, HTMLButtonElement>());
 
   const [bill, setBill] = useState<Bill | null>(null),
     [error, setError] = useState(""),
@@ -99,6 +105,7 @@ export default function BillReview({
     unsavedBills.delete(id);
     setBill(received);
     setRemote(null);
+    setUnitReview(null);
   }
   function navigate(next: () => void) {
     if (busy) return;
@@ -151,6 +158,7 @@ export default function BillReview({
     setBill(null);
     setError("");
     setRemote(null);
+    setUnitReview(null);
     api<Bill>("/bills/" + id)
       .then((received) => {
         if (cancelled) return;
@@ -217,6 +225,73 @@ export default function BillReview({
       ...r,
       items: r.items.map((v, j) => (j === index ? line : v)),
     }));
+  }
+  function selectProduct(
+    index: number,
+    productId: string,
+    product?: ProductOption,
+  ) {
+    const draft = current.current;
+    if (!draft || draft.status !== "pending" || busy) return;
+    const item = draft.items[index];
+    const line =
+      item?.sourceLine === undefined
+        ? undefined
+        : draft.receipt?.items[item.sourceLine];
+    if (product && line && !salesUnitCompatible(line.unit, product.unit)) {
+      setUnitReview({ index, product });
+      return;
+    }
+    setBill({
+      ...draft,
+      items: draft.items.map((v, j) =>
+        j === index
+          ? {
+              ...v,
+              productId,
+              automaticMatch: false,
+              createReturnProduct: false,
+            }
+          : v,
+      ),
+    });
+  }
+  function closeUnitReview() {
+    const index = unitReview?.index;
+    setUnitReview(null);
+    if (index !== undefined)
+      requestAnimationFrame(() => itemTriggers.current.get(index)?.focus());
+  }
+  function confirmStockUnit() {
+    if (!unitReview || busy) return;
+    const draft = current.current;
+    const item = draft?.items[unitReview.index];
+    const line =
+      item?.sourceLine === undefined
+        ? undefined
+        : draft?.receipt?.items[item.sourceLine];
+    if (!draft?.receipt || draft.status !== "pending" || !item || !line) return;
+    setBill({
+      ...draft,
+      receipt: {
+        ...draft.receipt,
+        edited: true,
+        items: draft.receipt.items.map((v, j) =>
+          j === item.sourceLine ? { ...v, unit: unitReview.product.unit } : v,
+        ),
+      },
+      items: draft.items.map((v, j) =>
+        j === unitReview.index
+          ? {
+              ...v,
+              productId: unitReview.product.id,
+              automaticMatch: false,
+              createReturnProduct: false,
+            }
+          : v,
+      ),
+    });
+    closeUnitReview();
   }
   function addLine() {
     if (!bill) return;
@@ -911,6 +986,10 @@ export default function BillReview({
               <div className="line-item">
                 {!item.createReturnProduct && (
                   <ProductPicker
+                    triggerRef={(node) => {
+                      if (node) itemTriggers.current.set(i, node);
+                      else itemTriggers.current.delete(i);
+                    }}
                     label={`Item ${i + 1}`}
                     emptyLabel={
                       market
@@ -918,25 +997,14 @@ export default function BillReview({
                         : "Choose stock item"
                     }
                     showStock={kind === "sale" || kind === "free"}
+                    reviewUnits
                     suggestedName={original?.name}
                     unit={original?.unit}
                     mrp={original?.mrp ?? item.mrp}
                     disabled={!editable || busy}
                     value={item.productId}
-                    onChange={(productId) =>
-                      setBill({
-                        ...bill,
-                        items: bill.items.map((v, j) =>
-                          i === j
-                            ? {
-                                ...v,
-                                productId,
-                                automaticMatch: false,
-                                createReturnProduct: false,
-                              }
-                            : v,
-                        ),
-                      })
+                    onChange={(productId, product) =>
+                      selectProduct(i, productId, product)
                     }
                   />
                 )}
@@ -1119,6 +1187,37 @@ export default function BillReview({
               </div>
             </>
           )}
+        </Modal>
+      )}
+      {unitReview && (
+        <Modal title="Check stock unit" onClose={closeUnitReview}>
+          <p>
+            <strong>{unitReview.product.name}</strong>
+          </p>
+          <p>
+            Bill: {bill.items[unitReview.index]?.quantity}{" "}
+            {
+              bill.receipt?.items[
+                bill.items[unitReview.index]?.sourceLine ?? -1
+              ]?.unit
+            }
+            {" · "}Stock: {unitReview.product.unit}
+          </p>
+          <p>
+            Use {bill.items[unitReview.index]?.quantity}{" "}
+            {unitReview.product.unit} for this line? Quantity, MRP and prices
+            stay the same.
+          </p>
+          <div className="modal-actions">
+            <button onClick={closeUnitReview}>Cancel</button>
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={confirmStockUnit}
+            >
+              Use {unitReview.product.unit}
+            </button>
+          </div>
         </Modal>
       )}
       {leaveAction && (

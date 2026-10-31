@@ -1,10 +1,19 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Ref } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Command } from "cmdk";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronsUpDown, Check } from "lucide-react";
 import { api } from "../api";
+import { salesUnitCompatible } from "../../server/sales-units";
+export type ProductOption = {
+  id: string;
+  name: string;
+  sku: string;
+  unit: string;
+  stock: number;
+  matchingStock: number;
+};
 export default function ProductPicker({
   value,
   onChange,
@@ -16,9 +25,11 @@ export default function ProductPicker({
   mrp,
   showStock = false,
   suggestedName = "",
+  reviewUnits = false,
+  triggerRef,
 }: {
   value: string;
-  onChange: (id: string) => void;
+  onChange: (id: string, product?: ProductOption) => void;
   disabled?: boolean;
   label?: string;
   emptyLabel?: string;
@@ -27,6 +38,8 @@ export default function ProductPicker({
   mrp?: number | null;
   showStock?: boolean;
   suggestedName?: string;
+  reviewUnits?: boolean;
+  triggerRef?: Ref<HTMLButtonElement>;
 }) {
   const [open, setOpen] = useState(false),
     [search, setSearch] = useState(""),
@@ -43,10 +56,18 @@ export default function ProductPicker({
     refetchInterval: showStock ? 10000 : false,
   });
   const options = useQuery({
-    queryKey: ["product-options", query, packetsOnly, unit, mrp, suggestedName],
+    queryKey: [
+      "product-options",
+      query,
+      packetsOnly,
+      unit,
+      mrp,
+      suggestedName,
+      reviewUnits,
+    ],
     queryFn: () =>
-      api<any[]>(
-        `/product-options?q=${encodeURIComponent(query)}&suggested=${encodeURIComponent(suggestedName)}${packetsOnly || unit ? `&unit=${encodeURIComponent(packetsOnly ? "PKT" : unit!)}` : ""}${mrp != null ? `&mrp=${mrp}` : ""}`,
+      api<ProductOption[]>(
+        `/product-options?q=${encodeURIComponent(query)}&suggested=${encodeURIComponent(suggestedName)}${packetsOnly || unit ? `&unit=${encodeURIComponent(packetsOnly ? "PKT" : unit!)}` : ""}${mrp != null ? `&mrp=${mrp}` : ""}${reviewUnits && !packetsOnly ? "&reviewUnits=1" : ""}`,
       ),
     enabled: open,
   });
@@ -67,6 +88,7 @@ export default function ProductPicker({
     >
       <Popover.Trigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           role="combobox"
           aria-label={label}
@@ -145,7 +167,9 @@ export default function ProductPicker({
                   key={p.id}
                   value={p.id}
                   onSelect={() => {
-                    onChange(p.id);
+                    onChange(p.id, p);
+                    setSearch("");
+                    setQuery("");
                     setOpen(false);
                   }}
                 >
@@ -155,6 +179,9 @@ export default function ProductPicker({
                       {p.sku} · {p.stock} {p.unit}
                       {mrp != null
                         ? ` · ${p.matchingStock} at MRP ${mrp.toFixed(2)}`
+                        : ""}
+                      {reviewUnits && unit && !salesUnitCompatible(unit, p.unit)
+                        ? " · Check unit"
                         : ""}
                     </small>
                   </span>

@@ -6,6 +6,12 @@ export function isGenericSalesUnit(unit: string): boolean {
   return ["UNIT", "UNITS"].includes(normalize(unit));
 }
 
+// These labels can be compared as individual items during manual review.
+// This does not make them interchangeable for matching or allocation.
+export function isSalesCountUnit(unit: string): boolean {
+  return ["PKT", "BOX", "BTL", "UNIT", "UNITS"].includes(normalize(unit));
+}
+
 export function salesUnitCompatible(printed: string, stock: string): boolean {
   const source = normalize(printed),
     target = normalize(stock);

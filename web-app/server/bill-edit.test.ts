@@ -16,6 +16,66 @@ SKU UNIT QTY RATE AMOUNT
 Gross : 36.00
 Net(Rs) : 36.00
 `;
+test("reviewing a bottle/packet label preserves the capture, quantity and money and still checks MRP", async () => {
+  const s = await openTestStore();
+  try {
+    const capture = text.replace("PKT 2", "BTL 2");
+    const { id } = await s.ingest(
+      Buffer.from(capture),
+      "synthetic-unit-review",
+      "",
+      "Test",
+    );
+    const productId = await s.saveProduct({
+      name: "Item",
+      unit: "PKT",
+      stock: 10,
+      mrp: 20,
+    });
+    const before = await s.bill(id);
+    const b = await s.reviewBill(id);
+    b.payment_type = "cash";
+    b.receipt.reviewed = true;
+    b.items[0] = { ...b.items[0], productId, automaticMatch: false };
+    await s.saveBill(id, b);
+    await expect(s.decide(id, "accepted")).rejects.toThrow("Print uses BTL");
+    expect((await s.product(productId!)).stock).toBe(10000);
+    const corrected = await s.bill(id);
+    corrected.receipt.items[0].unit = "PKT";
+    corrected.receipt.edited = true;
+    corrected.receipt.items[0].mrp = 25;
+    await s.saveBill(id, corrected);
+    await expect(s.decide(id, "accepted")).rejects.toThrow();
+    expect((await s.product(productId!)).stock).toBe(10000);
+    const ready = await s.bill(id);
+    ready.receipt.items[0].mrp = 20;
+    await s.saveBill(id, ready);
+    const saved = await s.reviewBill(id);
+    expect(saved.items[0]).toMatchObject({
+      productId,
+      automaticMatch: false,
+      quantity: 2,
+      mrp: 20,
+      sellingPrice: 18,
+    });
+    expect(saved.receipt.items[0]).toMatchObject({
+      unit: "PKT",
+      quantity: 2,
+      rate: 18,
+      amount: 36,
+    });
+    expect(saved.receipt.total).toBe(before.receipt.total);
+    expect(saved.originalReceipt).toEqual(before.originalReceipt);
+    expect(Buffer.from(saved.raw).toString()).toBe(capture);
+    await s.decide(id, "accepted");
+    await s.decide(id, "accepted");
+    expect((await s.product(productId!)).stock).toBe(8000);
+    await s.deleteBill(id, (await s.bill(id)).revision, "DELETE");
+    expect((await s.product(productId!)).stock).toBe(10000);
+  } finally {
+    await s.db.close();
+  }
+});
 test("draft edits persist customer details, quantities, prices, discounts and calculated totals while preserving the print", async () => {
   const s = await openTestStore();
   try {

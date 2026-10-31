@@ -196,6 +196,35 @@ test("HTTP auth, table validation, packet lookup, CSRF and immutable capture", a
         await fetch(base + "/api/product-options?q=SKU_&unit=BOX", { headers })
       ).json(),
     ).toEqual([]);
+    const reviewedUnits = await (
+      await fetch(
+        base + "/api/product-options?q=SKU_&unit=BTL&mrp=20&reviewUnits=1",
+        { headers },
+      )
+    ).json();
+    expect(reviewedUnits[0]).toMatchObject({
+      id: product,
+      unit: "PKT",
+      stock: 10,
+      matchingStock: 0,
+    });
+    // Cartons and weight measures do not become individual-item counts.
+    expect(
+      await (
+        await fetch(
+          base + "/api/product-options?q=SKU_&unit=DZ&reviewUnits=1",
+          { headers },
+        )
+      ).json(),
+    ).toEqual([]);
+    expect(
+      await (
+        await fetch(
+          base + "/api/product-options?q=SKU_&unit=MC&reviewUnits=1",
+          { headers },
+        )
+      ).json(),
+    ).toEqual([]);
     expect(
       (
         await fetch(base + "/api/products", {

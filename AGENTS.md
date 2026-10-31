@@ -145,6 +145,7 @@ Product identity and price-batch identity are separate concerns.
 - Recheck untouched legacy automatic choices without silently discarding historically reviewed manual choices.
 - Changing an automatically mapped line's name, unit or MRP clears its selection for review.
 - Search should suggest relevant names first while showing SKU, total stock and available stock at the requested MRP. Different-MRP suggestions may be manually inspected, but must not bypass allocation checks.
+- Manual bill search may show other individual-item units (PKT, BTL, BOX). Selecting a different unit requires an explicit quantity/unit confirmation that edits the reviewed line, never the original print. Preserve quantity and money; do not infer carton/weight conversions or relax automatic matching and acceptance checks.
 
 Maintain identity-only matching separately from bill auto-selection. Returns, product lookup and supplier workflows must not accidentally inherit a sales-only available-stock requirement.
 
