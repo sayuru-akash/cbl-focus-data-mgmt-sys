@@ -108,6 +108,7 @@ export default function StockValue() {
             <div className="finance-card">
               <span>Direct value</span>
               <strong>{money(report.summary.direct)}</strong>
+              <small>Before discount</small>
               {report.summary.unpricedLots > 0 && <small>Partial</small>}
             </div>
             <div className="finance-card finance-card-primary">

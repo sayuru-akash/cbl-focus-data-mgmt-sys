@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { beforeDiscountSql } from "./cost-basis";
 import { AppError, type Store } from "./store";
 import { colomboDay } from "./discount-categories";
 
@@ -46,7 +47,7 @@ export async function stockValue(
   }
   const lots = await store.db
     .query(
-      `SELECT p.id,p.name,p.sku,p.unit,p.stock,l.remaining,l.cost FROM products p JOIN stock_lots l ON l.product_id=p.id WHERE ${where.join(" AND ")}`,
+      `SELECT p.id,p.name,p.sku,p.unit,p.stock,l.remaining,${beforeDiscountSql} cost FROM products p JOIN stock_lots l ON l.product_id=p.id LEFT JOIN stock_lot_costs cb ON cb.lot_id=l.id WHERE ${where.join(" AND ")}`,
     )
     .all(...args);
   const grouped = new Map<

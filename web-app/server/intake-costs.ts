@@ -39,13 +39,17 @@ export function invoiceCosts(draft: IntakeDraft) {
   return draft.lines.map((line, i) => {
     const quantity = (line.sold || 0) * (line.packSize || 0);
     const netCents = amounts[i]! - shares[i]!;
+    const unitPrice = (amount: number) =>
+      quantity > 0 && Number.isSafeInteger(quantity)
+        ? Number(
+            (BigInt(amount) * 2n + BigInt(quantity)) / (BigInt(quantity) * 2n),
+          ) / 100
+        : null;
     return {
       discountCents: shares[i]!,
       netAmount: netCents / 100,
-      costPrice:
-        quantity > 0 && Number.isSafeInteger(quantity)
-          ? Math.round(netCents / quantity) / 100
-          : null,
+      costPrice: unitPrice(amounts[i]!),
+      netCostPrice: unitPrice(netCents),
     };
   });
 }

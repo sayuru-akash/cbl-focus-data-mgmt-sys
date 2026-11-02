@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { beforeDiscountSql } from "./cost-basis";
 import { AppError, type Store } from "./store";
 const schema = z.object({
   page: z.coerce.number().int().min(1).max(100000).default(1),
@@ -96,13 +97,19 @@ export async function grid(
       break;
     case "lots":
       if (!f.product) throw new AppError("Choose an item");
-      source = `SELECT l.id,l.product_id,l.received,l.received_qty/1000.0 received_qty,l.remaining/1000.0 remaining,l.cost/100.0 cost,l.mrp/100.0 mrp,l.purchase_id,i.id intake_id FROM stock_lots l LEFT JOIN intakes i ON i.purchase_id=l.purchase_id`;
-      search = ["received", "mrp", "cost"];
+      source = `SELECT l.id,l.product_id,l.received,l.received_qty/1000.0 received_qty,l.remaining/1000.0 remaining,(${beforeDiscountSql})/100.0 cost,l.cost/100.0 net_cost,l.mrp/100.0 mrp,l.purchase_id,i.id intake_id FROM stock_lots l LEFT JOIN intakes i ON i.purchase_id=l.purchase_id LEFT JOIN stock_lot_costs cb ON cb.lot_id=l.id`;
+      search = [
+        "received",
+        "CAST(mrp AS TEXT)",
+        "CAST(cost AS TEXT)",
+        "CAST(net_cost AS TEXT)",
+      ];
       sorts = {
         received: "received",
         received_qty: "received_qty",
         remaining: "remaining",
         cost: "cost",
+        net_cost: "net_cost",
         mrp: "mrp",
       };
       date = "received";

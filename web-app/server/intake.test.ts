@@ -142,7 +142,8 @@ test("one reviewed invoice atomically creates products, converts packets, alloca
       unit: "PKT",
     });
     expect((await store.products())[0].lots[0]).toMatchObject({
-      costPrice: 1333.33,
+      costPrice: 1400,
+      netCostPrice: 1333.33,
       mrp: 600,
     });
     await intakes.receive(id, 1);
@@ -231,6 +232,9 @@ test("the same product from different supplier codes and suppliers reuses one pr
     expect(products[0]!.stock).toBe(27);
     expect(products[0]!.lots.map((l: any) => l.mrp)).toEqual([600, 600, 650]);
     expect(products[0]!.lots.map((l: any) => l.costPrice)).toEqual([
+      1400, 1400, 1400,
+    ]);
+    expect(products[0]!.lots.map((l: any) => l.netCostPrice)).toEqual([
       1366.67, 1366.67, 1400,
     ]);
     expect(

@@ -1081,9 +1081,16 @@ export default function InvoiceIntake({
                         </span>
                         <small>
                           {cost
-                            ? `VAT included · Invoice discount: ${money(cost.discountCents / 100)}`
+                            ? `Before discount · VAT included`
                             : "Check quantities and invoice totals to calculate cost."}
                         </small>
+                        {cost && cost.discountCents > 0 && (
+                          <small>
+                            After discount / packet{" "}
+                            <strong>{money(cost.netCostPrice)}</strong> · Line
+                            discount {money(cost.discountCents / 100)}
+                          </small>
+                        )}
                       </div>
                       {!locked && (
                         <p className="muted">

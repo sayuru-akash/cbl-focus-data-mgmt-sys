@@ -437,7 +437,11 @@ async function handleApiResponse(
       if (path === "/api/products" && method === "GET")
         return json(await store.products());
       if (path === "/api/purchases" && method === "GET")
-        return json(await store.inventory.purchases());
+        return json(
+          await store.inventory.displayPurchases(
+            await store.inventory.purchases(),
+          ),
+        );
       if (path === "/api/purchases" && method === "POST")
         throw new AppError("Upload supplier invoice photos to receive stock");
       const purchase = path.match(
@@ -446,7 +450,9 @@ async function handleApiResponse(
       if (purchase) {
         const [, id, action] = purchase;
         if (!action && method === "GET") {
-          const purchase = await store.inventory.purchase(id);
+          const purchase = await store.inventory.displayPurchase(
+            await store.inventory.purchase(id),
+          );
           return json({
             ...purchase,
             lines: await mapAsync(purchase.lines, async (line: any) => ({

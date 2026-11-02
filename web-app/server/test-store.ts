@@ -8,6 +8,7 @@ export async function openTestStore() {
   // Long fixture replays must not retain an idle administrative connection.
   admin.on("error", () => {});
   const schema = "focus_test_" + crypto.randomUUID().replaceAll("-", "");
+  await admin.query('SET search_path TO public');
   await admin.query(`CREATE SCHEMA "${schema}"`);
   try {
     const store = await Store.open(url.toString(), schema);

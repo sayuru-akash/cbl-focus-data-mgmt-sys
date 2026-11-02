@@ -153,13 +153,25 @@ export async function openDatabase(
   const context = new AsyncLocalStorage<pg.PoolClient>();
   const withClient = async <T>(
     fn: (client: pg.PoolClient) => Promise<T>,
+    scoped = true,
   ): Promise<T> => {
     const current = context.getStore();
     if (current) return fn(current);
     const client = await pool.connect();
     try {
-      if(schema!=="public")await client.query(`SET search_path TO "${schema}"`);
-      return await fn(client);
+      if (!scoped) return await fn(client);
+      // Pin the server connection while applying the schema. Session-level SET
+      // outside a transaction is unsafe behind transaction poolers.
+      await client.query('BEGIN');
+      try {
+        await client.query(`SET LOCAL search_path TO "${schema}"`);
+        const result = await fn(client);
+        await client.query('COMMIT');
+        return result;
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      }
     } finally {
       client.release();
     }
@@ -214,6 +226,7 @@ export async function openDatabase(
       return withClient(async (client) => {
         await client.query("BEGIN");
         try {
+          await client.query(`SET LOCAL search_path TO "${schema}"`);
           // One distributor: serialize short ledger mutations, across every Vercel instance.
           await client.query(
             "SELECT pg_advisory_xact_lock(hashtext(current_schema()), 4310)",
@@ -225,7 +238,7 @@ export async function openDatabase(
           await client.query("ROLLBACK");
           throw error;
         }
-      });
+      }, false);
     },
     close: () => pool.end(),
   };

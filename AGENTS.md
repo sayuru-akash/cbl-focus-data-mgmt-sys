@@ -115,6 +115,7 @@ Sample development normally opens at `http://127.0.0.1:4311`, with the API on po
 - Unknown price is `null`, not zero. Preserve the distinction in validation, rendering and calculations.
 - Purchase cost, printed invoice unit price, packet MRP and selling price are different values. Never substitute one for another.
 - Allocate supplier discounts deterministically in integer cents, retaining exact invoice amounts and allocation evidence. Use `intake-costs.ts` rather than independent UI/server formulas.
+- The primary displayed item cost is before supplier invoice discount. Show net cost separately as "After discount". Keep original net ledger/allocation costs immutable; `stock_lot_costs` records the separate before-discount basis. Recover historical bases only from fully reconciled invoice/purchase/lot evidence, otherwise mark them unpriced.
 - Keep currency and date presentation consistent with the existing application. Finance period boundaries use Sri Lanka time; avoid browser-local timezone drift.
 
 Validate domain rules at the server boundary even when the UI prevents invalid input.
@@ -228,7 +229,7 @@ Do not change provider models or pricing assumptions based on memory. Inspect th
 - Aggregates cover all matching rows, not only the paginated table page.
 - Payment categories are Cash, Cheque and Credit; retain an explicit unset category for legacy records. These represent billed amounts, not collections, bank deposits or profit.
 - Credit age uses accepted Credit bills across all dates, measured by Sri Lanka calendar days from the bill date as of today. Today, 1-13, 14-20, 21-29 and 30+ groups are disjoint. Never label billed values as unpaid balances or infer a missing bill date from upload time. Keep missing/future dates explicit and group totals, search, pagination and CSV consistent.
-- Stock value is a current-stock report, independent of bill date/payment filters. Direct uses remaining lot quantities and their recorded costs; RD uses the agreed 6.70% gross margin (cost / 0.933), rounded half up to unit cents before multiplication. Keep costs and MRPs separate; never substitute MRP or historical sales rates. Preserve mixed-cost lots, mark missing costs and partial subtotals explicitly, and reconcile filtered totals/CSV across all matching rows. Valuation must not mutate the ledger.
+- Stock value is a current-stock report, independent of bill date/payment filters. Direct uses remaining lot quantities and their recorded before-discount costs; RD uses that same basis with the agreed 6.70% gross margin (cost / 0.933), rounded half up to unit cents before multiplication. Keep costs and MRPs separate; never substitute MRP or historical sales rates. Preserve mixed-cost lots, mark missing costs and partial subtotals explicitly, and reconcile filtered totals/CSV across all matching rows. Valuation must not mutate the ledger.
 - Chocolate, Candy Bar and Cereal Bars (`CERIAL BARS` on prints) are a breakdown of existing bill/SKU discounts, not another deduction.
 - Preserve line discounts, return values, reverse GRTS and free quantities separately. Flag reconciliation differences instead of allocating them by guesswork.
 - Handle zero totals and negative return-credit totals without forcing them into positive sales.
@@ -241,6 +242,7 @@ Any report change must reconcile totals to the underlying filtered records and p
 - The adapter translates a limited set of fixed SQL for SQLite and Postgres; it is not a general SQL transpiler. Verify new SQL on both engines when affected.
 - Preserve transactional locking, revision checks, uniqueness constraints and rollback semantics. A UI preflight is not a concurrency guarantee.
 - Keep operations on a transaction's connection sequential unless the adapter explicitly supports the proposed concurrency. Use existing helpers such as `mapAsync` where appropriate.
+- PostgreSQL schema selection uses `SET LOCAL` inside a pinned transaction, including individual statements. Do not rely on session-level `search_path` across a transaction pooler. Run `FOCUS_TEST_POSTGRES_SESSION` regression checks only on a dedicated disposable PostgreSQL server.
 - Do not move cloud OCR, object transfers or other slow external calls inside stock-ledger transactions.
 - Initialization currently includes schema evolution and some data upgrades. `Store.open()` is not a read-only production inspection primitive.
 - For production inspection, use focused read-only queries without calling initialization unnecessarily. Minimize returned personal/business data.

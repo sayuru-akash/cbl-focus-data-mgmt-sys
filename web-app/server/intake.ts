@@ -1,6 +1,7 @@
 import { PhotoStorage } from "./photos";
 import { mapAsync } from "./db";
 import { invoiceCosts } from "./intake-costs";
+import { backfillInvoiceCostBasis } from "./cost-basis";
 import { createHash, randomUUID } from "node:crypto";
 import { AppError, Store, string, units } from "./store";
 import { cents, productIdentity } from "./inventory";
@@ -67,6 +68,7 @@ export class Intakes {
     await store.db
       .exec(`CREATE TABLE IF NOT EXISTS photo_gc(key TEXT PRIMARY KEY,after_ms INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS photo_uploads(id TEXT PRIMARY KEY,files TEXT NOT NULL,expires INTEGER NOT NULL,intake_id TEXT REFERENCES intakes(id));`);
+    await backfillInvoiceCostBasis(store.db);
   }
   async cleanupPhotos() {
     if (!this.photos) return;
@@ -663,14 +665,15 @@ export class Intakes {
           productId,
           quantity,
           mrp: l.mrp,
-          costPrice: costs![index]!.costPrice,
+          costPrice: costs![index]!.netCostPrice,
+          beforeDiscountCostPrice: costs![index]!.costPrice,
         };
       });
       const purchase = await this.store.inventory.savePurchase({
         supplier: `${d.supplier} (${d.tin})`,
         number: d.number,
         received: d.date,
-        note: "From reviewed supplier invoice photos. Cost includes VAT and allocated invoice discount.",
+        note: "VAT included. Invoice discount recorded separately.",
         lines,
       });
       await this.store.inventory.postPurchase(purchase.id);

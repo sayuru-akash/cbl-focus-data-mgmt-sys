@@ -1,4 +1,5 @@
 import { printedIdentity } from "./product-matching";
+import { beforeDiscountSql, costBasisSchema } from "./cost-basis";
 import { isGenericSalesUnit, salesUnitCompatible } from "./sales-units";
 import { lineKind, billReviewErrors } from "./receipt";
 import { mapAsync } from "./db";
@@ -40,6 +41,7 @@ export class Inventory {
     await store.db.exec(`
       CREATE TABLE IF NOT EXISTS stock_lots(id TEXT PRIMARY KEY,product_id TEXT NOT NULL REFERENCES products(id),received_qty INTEGER NOT NULL,remaining INTEGER NOT NULL CHECK(remaining>=0),cost INTEGER,mrp INTEGER,purchase_id TEXT,received TEXT NOT NULL,created TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS stock_lots_product ON stock_lots(product_id,mrp,received,created);
+      ${costBasisSchema}
       CREATE TABLE IF NOT EXISTS purchases(id TEXT PRIMARY KEY,number TEXT NOT NULL,supplier TEXT NOT NULL,received TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'draft',lines TEXT NOT NULL,note TEXT NOT NULL DEFAULT '',created TEXT NOT NULL,posted TEXT);
       CREATE UNIQUE INDEX IF NOT EXISTS purchase_number ON purchases(lower(trim(supplier)),lower(trim(number))) WHERE number<>'';
       CREATE TABLE IF NOT EXISTS allocations(id TEXT PRIMARY KEY,bill_id TEXT NOT NULL REFERENCES bills(id),line INTEGER NOT NULL,lot_id TEXT NOT NULL REFERENCES stock_lots(id),quantity INTEGER NOT NULL,cost INTEGER,mrp INTEGER,selling_price INTEGER);
@@ -72,6 +74,7 @@ export class Inventory {
     mrp: number | null,
     purchaseId: string | null = null,
     received = new Date().toISOString().slice(0, 10),
+    beforeDiscount: number | null | undefined = undefined,
   ) {
     const id = randomUUID();
     await this.store.db
@@ -87,20 +90,30 @@ export class Inventory {
         received,
         new Date().toISOString(),
       );
+    await this.store.db
+      .query(
+        "INSERT INTO stock_lot_costs(lot_id,before_discount,source) VALUES (?,?,?)",
+      )
+      .run(
+        id,
+        beforeDiscount === undefined ? cost : beforeDiscount,
+        purchaseId || "recorded",
+      );
     return id;
   }
   async lots(productId: string) {
     return (
       (await this.store.db
         .query(
-          "SELECT * FROM stock_lots WHERE product_id=? ORDER BY received,created,rowid",
+          `SELECT l.*,${beforeDiscountSql} before_discount FROM stock_lots l LEFT JOIN stock_lot_costs cb ON cb.lot_id=l.id WHERE product_id=? ORDER BY received,created,l.rowid`,
         )
         .all(productId)) as any[]
     ).map((l) => ({
       ...l,
       remaining: l.remaining / 1000,
       received_qty: l.received_qty / 1000,
-      costPrice: l.cost === null ? null : l.cost / 100,
+      costPrice: l.before_discount === null ? null : l.before_discount / 100,
+      netCostPrice: l.cost === null ? null : l.cost / 100,
       mrp: l.mrp === null ? null : l.mrp / 100,
     }));
   }
@@ -128,6 +141,12 @@ export class Inventory {
       await this.store.db
         .query("UPDATE stock_lots SET cost=?,mrp=? WHERE id=?")
         .run(cents(input.costPrice), cents(input.mrp), lotId);
+      await this.store.db
+        .query(
+          `INSERT INTO stock_lot_costs(lot_id,before_discount,source) VALUES (?,?,'recorded')
+        ON CONFLICT(lot_id) DO UPDATE SET before_discount=excluded.before_discount,source=excluded.source`,
+        )
+        .run(lotId, cents(input.costPrice));
     })();
   }
   async matcher(sales = false) {
@@ -204,6 +223,54 @@ export class Inventory {
   private readPurchase(row: any) {
     return { ...row, lines: JSON.parse(row.lines) };
   }
+  async displayPurchase(purchase: any) {
+    return (await this.displayPurchases([purchase]))[0];
+  }
+  async displayPurchases(purchases: any[]) {
+    const byPurchase = new Map<string, any[]>();
+    for (let offset = 0; offset < purchases.length; offset += 100) {
+      const ids = purchases.slice(offset, offset + 100).map((p) => p.id);
+      const lots = await this.store.db
+        .query(
+          `SELECT l.*,${beforeDiscountSql} before_discount FROM stock_lots l
+      LEFT JOIN stock_lot_costs cb ON cb.lot_id=l.id WHERE purchase_id IN (${ids.map(() => "?").join(",")}) ORDER BY created,l.rowid`,
+        )
+        .all(...ids);
+      for (const lot of lots) {
+        const list = byPurchase.get(lot.purchase_id) || [];
+        list.push(lot);
+        byPurchase.set(lot.purchase_id, list);
+      }
+    }
+    return purchases.map((purchase) => {
+      const lots = byPurchase.get(purchase.id) || [];
+      return {
+        ...purchase,
+        note:
+          purchase.note ===
+          "From reviewed supplier invoice photos. Cost includes VAT and allocated invoice discount."
+            ? "VAT included. Invoice discount recorded separately."
+            : purchase.note,
+        lines: purchase.lines.map((line: any, i: number) => {
+          const lot = lots[i];
+          const valid =
+            lots.length === purchase.lines.length &&
+            lot?.product_id === line.productId &&
+            lot.received_qty === line.quantity * 1000;
+          return {
+            ...line,
+            netCostPrice: line.costPrice,
+            costPrice:
+              purchase.status === "received"
+                ? valid && lot.before_discount !== null
+                  ? lot.before_discount / 100
+                  : null
+                : (line.beforeDiscountCostPrice ?? line.costPrice),
+          };
+        }),
+      };
+    });
+  }
   async purchase(id: string) {
     const row = await this.store.db
       .query("SELECT * FROM purchases WHERE id=?")
@@ -234,6 +301,12 @@ export class Inventory {
         quantity = units(line.quantity),
         cost = cents(line.costPrice),
         mrp = cents(line.mrp);
+      const beforeDiscount =
+        line.beforeDiscountCostPrice === undefined
+          ? cost
+          : cents(line.beforeDiscountCostPrice);
+      if (cost !== null && beforeDiscount !== null && beforeDiscount < cost)
+        fail("Before-discount cost must cover the net cost");
       if (!quantity) fail("Received quantity must be greater than zero");
       if (productId && !(await this.store.product(productId)))
         fail("Choose an active stock item");
@@ -257,6 +330,8 @@ export class Inventory {
         ...(newProduct ? { newProduct } : {}),
         quantity: quantity / 1000,
         costPrice: cost === null ? null : cost / 100,
+        beforeDiscountCostPrice:
+          beforeDiscount === null ? null : beforeDiscount / 100,
         mrp: mrp === null ? null : mrp / 100,
         ...(billLine === undefined ? {} : { billLine }),
       };
@@ -339,6 +414,9 @@ export class Inventory {
           cents(line.mrp),
           id,
           purchase.received,
+          line.beforeDiscountCostPrice === undefined
+            ? undefined
+            : cents(line.beforeDiscountCostPrice),
         );
         await this.store.db
           .query("UPDATE products SET stock=stock+? WHERE id=?")

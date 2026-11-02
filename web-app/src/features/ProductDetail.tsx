@@ -204,6 +204,11 @@ export function ProductDetail({ id }: { id: string }) {
                   cell: ({ getValue }) => money(getValue()),
                 },
                 {
+                  accessorKey: "net_cost",
+                  header: "After discount",
+                  cell: ({ getValue }) => money(getValue()),
+                },
+                {
                   accessorKey: "mrp",
                   header: "MRP",
                   cell: ({ getValue }) => money(getValue()),

@@ -31,6 +31,7 @@ export type Product = {
     remaining: number;
     received_qty: number;
     costPrice: number | null;
+    netCostPrice: number | null;
     mrp: number | null;
     received: string;
     purchase_id?: string | null;
@@ -50,6 +51,7 @@ export type PurchaseLine = {
   newProduct?: { sku: string; name: string; unit: string };
   quantity: number;
   costPrice: number | null;
+  netCostPrice?: number | null;
   mrp: number | null;
   billLine?: number;
 };

@@ -103,6 +103,7 @@ export function ReceiptDetail({ id }: { id: string }) {
                   <th>SKU</th>
                   <th>Quantity</th>
                   <th>Cost / packet</th>
+                  <th>After discount</th>
                   <th>MRP</th>
                 </tr>
               </thead>
@@ -123,6 +124,7 @@ export function ReceiptDetail({ id }: { id: string }) {
                       {l.quantity} {l.product?.unit || "PKT"}
                     </td>
                     <td>{money(l.costPrice)}</td>
+                    <td>{money(l.netCostPrice)}</td>
                     <td>{money(l.mrp)}</td>
                   </tr>
                 ))}

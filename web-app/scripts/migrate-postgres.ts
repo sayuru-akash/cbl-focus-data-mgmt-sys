@@ -20,7 +20,7 @@ const old=new Database(backup,{readonly:true});
 const store=await Store.open(process.env.DATABASE_URL);
 const photos=new PhotoStorage();
 await Intakes.open(store,photos);
-const order=['settings','customers','products','bills','movements','purchases','stock_lots','allocations','product_aliases','intakes','intake_pages','supplier_products','received_supplier_invoices'];
+const order=['settings','customers','products','bills','movements','purchases','stock_lots','stock_lot_costs','allocations','product_aliases','intakes','intake_pages','supplier_products','received_supplier_invoices'];
 const existing=new Set((old.query("SELECT name FROM sqlite_master WHERE type='table'").all() as any[]).map(r=>r.name));
 try {
   await store.db.transaction(async()=>{
