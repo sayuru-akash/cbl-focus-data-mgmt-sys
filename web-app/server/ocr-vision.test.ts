@@ -287,10 +287,12 @@ test("both readers preserve a final totals-only page without inventing products"
     { total: null },
     { invoice: "" },
     { supplier: "" },
-    { document: "" },
     { tin: "" },
   ])
     expect(extractedPage.safeParse({ ...totals, ...invalid }).success).toBe(
       false,
     );
+  expect(extractedPage.safeParse({ ...totals, document: "" }).success).toBe(
+    true,
+  );
 });

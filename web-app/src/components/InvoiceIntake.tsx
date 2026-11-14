@@ -691,7 +691,7 @@ export default function InvoiceIntake({
                         {(
                           [
                             ["invoice", "Tax invoice on page"],
-                            ["document", "Document number"],
+                            ["document", "Document number (if printed)"],
                           ] as const
                         ).map(([field, label]) => (
                           <label key={field}>

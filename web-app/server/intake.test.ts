@@ -1031,6 +1031,11 @@ test("totals-only flags cannot hide missing item pages, mixed pages or a complet
       totalsOnly: true,
     });
     expect(draftIssues(d, 2)).toEqual([]);
+    d.pages.forEach((p) => (p.document = ""));
+    expect(draftIssues(d, 2)).toEqual([]);
+    d.pages.forEach((p) => (p.document = "SAME-DOCUMENT"));
+    expect(draftIssues(d, 2)).toContain("Duplicate document page");
+    d.pages.forEach((p) => (p.document = ""));
     d.pages[1]!.totalsOnly = false;
     expect(draftIssues(d, 2)).toContain("Check items on every page");
     d.pages[1]!.totalsOnly = true;

@@ -36,7 +36,6 @@ export function isTotalsOnlyPage(data: {
   supplier: string;
   tin: string;
   invoice: string;
-  document: string;
   page: number | null;
   count: number | null;
   gross: number | null;
@@ -46,7 +45,6 @@ export function isTotalsOnlyPage(data: {
     data.supplier.trim() &&
     data.tin.trim() &&
     data.invoice.trim() &&
-    data.document.trim() &&
     data.count &&
     data.count > 1 &&
     data.page === data.count &&
@@ -332,7 +330,6 @@ export function parseSupplierPage(blocks: OcrBlock[], index: number) {
           supplier,
           tin,
           invoice,
-          document: doc,
           page: pageMatch ? Number(pageMatch[1]) : null,
           count: pageMatch ? Number(pageMatch[2]) : null,
           gross: gross ? readMoney(gross.text) : null,

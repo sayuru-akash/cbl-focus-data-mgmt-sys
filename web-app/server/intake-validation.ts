@@ -123,9 +123,9 @@ export function draftIssues(d: IntakeDraft, pages: number): string[] {
     issues.push("Check page numbers: include each invoice page once");
   if (d.pages.some((p) => key(p.invoice) !== key(d.number)))
     issues.push("All pages must have the same tax invoice number");
-  if (d.pages.some((p) => !p.document.trim()))
-    issues.push("Check each page's document number");
-  if (new Set(d.pages.map((p) => key(p.document))).size !== pages)
+  // Some invoice layouts print only the tax invoice number and page sequence.
+  const documents = d.pages.map((p) => key(p.document)).filter(Boolean);
+  if (new Set(documents).size !== documents.length)
     issues.push("Duplicate document page");
   if (d.pages.some((p) => !p.reviewed) || !d.headerReviewed)
     issues.push("Confirm page details and invoice totals");
