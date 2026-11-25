@@ -25,9 +25,9 @@ Bluetooth prints arrive as sales drafts. Supplier invoice photos become stock-in
 
 Draft fields remain editable. Saving keeps the draft open. Accepted bills retain their original receipt and stock allocations; their payment type can be changed later with an audit trail, without changing stock or bill totals.
 
-### Stock in: photos, review, receive
+### Stock in: upload, review, receive
 
-1. Upload or photograph **all pages of one supplier invoice**. Processing shows progress per page and preserves completed work for retries.
+1. Upload or photograph **all pages of one supplier invoice**, or choose **Upload PDF**. PDFs can contain up to 20 pages and be up to 20 MB. The app renders review previews and uses embedded text from supported invoices when the printed fields reconcile. Scanned PDFs use the photo reader. Processing shows progress per page and preserves completed work for retries.
 2. Check the header and each item beside its photo. Correct any scanned value; confirm product code, quantities, pack size, prices and MRP.
 3. Review the summary and receive stock. The app returns to Stock in with confirmation. When receiving from a sales bill's shortage dialog, it returns to that bill instead.
 

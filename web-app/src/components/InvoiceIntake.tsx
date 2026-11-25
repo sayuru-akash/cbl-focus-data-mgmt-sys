@@ -6,6 +6,7 @@ import DeleteIntakeButton from "./DeleteIntakeButton";
 import { useEffect, useRef, useState } from "react";
 import {
   Camera,
+  FileText,
   Upload,
   ChevronLeft,
   ChevronRight,
@@ -65,6 +66,7 @@ export default function InvoiceIntake({
     [draft, setDraft] = useState<IntakeDraft | null>(null);
   const [files, setFiles] = useState<File[]>([]),
     [previews, setPreviews] = useState<string[]>([]);
+  const [pdf, setPdf] = useState<File | null>(null);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
@@ -75,7 +77,8 @@ export default function InvoiceIntake({
     [page, setPage] = useState(0);
   const review = useRef<HTMLElement>(null);
   const upload = useRef<HTMLInputElement>(null),
-    camera = useRef<HTMLInputElement>(null);
+    camera = useRef<HTMLInputElement>(null),
+    pdfUpload = useRef<HTMLInputElement>(null);
   const locked = intake?.status === "received";
   const validation =
     draft && intake
@@ -83,7 +86,7 @@ export default function InvoiceIntake({
       : { blockers: [], warnings: [] };
   const dirty = intake
     ? JSON.stringify(draft) !== JSON.stringify(intake.draft)
-    : files.length > 0;
+    : files.length > 0 || pdf !== null;
   useEffect(() => {
     if (!dirty && !busy) return;
     const warn = (e: BeforeUnloadEvent) => {
@@ -182,9 +185,20 @@ export default function InvoiceIntake({
     await run(async () => {
       let current = intake;
       if (!current) {
-        setPhase(`Uploading ${files.length} photos…`);
+        let source = { files, pages: undefined } as {
+          files: File[];
+          pages?: unknown[];
+        };
+        if (pdf) {
+          setPhase("Opening PDF…");
+          const { renderInvoicePdf } = await import("../pdf-invoice");
+          source = await renderInvoicePdf(pdf, (page, count) => {
+            setPhase(`Preparing PDF page ${page} of ${count}…`);
+          });
+        }
+        setPhase(`Uploading ${source.files.length} pages…`);
         const metadata = await Promise.all(
-          files.map(async (f) => {
+          source.files.map(async (f) => {
             const digest = crypto.subtle
               ? new Uint8Array(
                   await crypto.subtle.digest("SHA-256", await f.arrayBuffer()),
@@ -210,26 +224,29 @@ export default function InvoiceIntake({
         });
         if (upload.local) {
           const form = new FormData();
-          files.forEach((f) => form.append("pages", f));
+          source.files.forEach((f) => form.append("pages", f));
+          if (source.pages) form.set("pdfPages", JSON.stringify(source.pages));
           current = await api<Intake>("/intakes", {
             method: "POST",
             body: form,
           });
         } else {
-          for (let i = 0; i < files.length; i++) {
-            setPhase(`Uploading photo ${i + 1} of ${files.length}…`);
+          for (let i = 0; i < source.files.length; i++) {
+            setPhase(`Uploading page ${i + 1} of ${source.files.length}…`);
             const target = upload.files![i]!;
             const response = await fetch(target.url, {
               method: "PUT",
               headers: target.headers,
-              body: files[i],
+              body: source.files[i],
             });
-            if (!response.ok)
-              throw new Error("Photo upload failed. Try again.");
+            if (!response.ok) throw new Error("Page upload failed. Try again.");
           }
-          setPhase("Saving photos…");
+          setPhase("Saving invoice pages…");
           current = await api<Intake>(`/intake-uploads/${upload.id}/complete`, {
             method: "POST",
+            ...(source.pages
+              ? { body: JSON.stringify({ pdfPages: source.pages }) }
+              : {}),
           });
         }
         apply(current);
@@ -375,6 +392,7 @@ export default function InvoiceIntake({
       );
       return;
     }
+    setPdf(null);
     setFiles(combined);
     setError("");
   }
@@ -416,11 +434,29 @@ export default function InvoiceIntake({
           ) : !intake ? (
             <>
               <p className="muted">
-                Choose every page, then process the invoice.
+                Choose photos or one PDF for this invoice.
               </p>
               <small className="muted">
                 JPG, PNG or WebP · 12 MB per photo · 20 pages / 60 MB total
               </small>
+              <input
+                ref={pdfUpload}
+                hidden
+                type="file"
+                accept="application/pdf,.pdf"
+                onChange={(e) => {
+                  const file = e.currentTarget.files?.[0];
+                  e.currentTarget.value = "";
+                  if (!file) return;
+                  if (!file.size || file.size > 20 * 1024 * 1024) {
+                    setError("Choose a PDF up to 20 MB.");
+                    return;
+                  }
+                  setFiles([]);
+                  setPdf(file);
+                  setError("");
+                }}
+              />
               <input
                 ref={upload}
                 hidden
@@ -452,7 +488,33 @@ export default function InvoiceIntake({
                   <Upload size={18} />
                   Upload photos
                 </button>
+                <button
+                  onClick={() => pdfUpload.current?.click()}
+                  disabled={busy}
+                >
+                  <FileText size={18} />
+                  Upload PDF
+                </button>
               </div>
+              {pdf && (
+                <div className="intake-selection">
+                  <div>
+                    <strong>{pdf.name}</strong>
+                    <span>{(pdf.size / 1024 / 1024).toFixed(1)} MB</span>
+                  </div>
+                  <button
+                    aria-label="Remove PDF"
+                    className="icon-button"
+                    disabled={busy}
+                    onClick={() => {
+                      setPdf(null);
+                      setError("");
+                    }}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              )}
               {files.length > 0 && (
                 <div className="intake-selection" role="status">
                   <strong>
@@ -494,14 +556,19 @@ export default function InvoiceIntake({
               <div className="modal-actions">
                 <button
                   className="primary"
-                  disabled={!files.length || busy}
+                  disabled={(!files.length && !pdf) || busy}
                   onClick={() => void process()}
                 >
-                  {busy
-                    ? phase
+                  {pdf
+                    ? "Process PDF"
                     : `Process${files.length ? ` ${files.length} photos` : " invoice"}`}
                 </button>
               </div>
+              {busy && (
+                <p className="muted" role="status">
+                  {phase}
+                </p>
+              )}
             </>
           ) : !draft?.pages.length ? (
             <>
@@ -511,11 +578,11 @@ export default function InvoiceIntake({
                 aria-live="polite"
               >
                 {busy && <LoaderCircle size={20} className="intake-spinner" />}
-                <strong>{busy ? phase : "Photos saved"}</strong>
+                <strong>{busy ? phase : "Pages saved"}</strong>
                 <span>
                   {busy
                     ? "Keep this page open while the draft is prepared."
-                    : "Process the photos to build the draft."}
+                    : "Process the pages to build the draft."}
                 </span>
               </div>
               <ol

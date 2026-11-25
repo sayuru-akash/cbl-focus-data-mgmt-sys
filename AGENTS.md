@@ -190,7 +190,7 @@ Do not approve, reject, reprice, delete or alter live records merely to demonstr
 
 ## 9. Supplier invoice photo workflow
 
-New deliveries follow one primary intake path: photograph/upload, process, review, receive. Do not introduce an alternative shortcut that bypasses evidence and validation.
+New deliveries use photos or one PDF per invoice, then process, review and receive. PDF upload renders page evidence in the browser and uses embedded text only after server reconciliation. Scanned or unrecognized PDFs use the existing photo reader. Keep the same validation and ledger path.
 
 - Support multiple pages belonging to one invoice. Keep document numbers separate from tax invoice numbers. Leave the document number blank when the layout only prints a tax invoice number and page sequence. Reject repeated nonblank document numbers.
 - A final page with no product rows is valid only with invoice identity, page numbering and a visible final invoice total. Order value and discount may be printed on different pages; combine each visible field independently in printed page order without inventing missing amounts. Keep it explicitly marked totals-only for review. Empty item pages and missing pages remain blocked; never invent a product row for a total or discount. A totals-only page cannot replace an item page or make a wholly empty invoice receivable.

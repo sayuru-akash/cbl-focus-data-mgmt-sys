@@ -382,8 +382,11 @@ async function handleApiResponse(
       const upload = path.match(
         /^\/api\/intake-uploads\/([a-f0-9-]+)\/complete$/,
       );
-      if (upload && method === "POST")
-        return json(await intakes.completeUpload(upload[1]!));
+      if (upload && method === "POST") {
+        const body = await req.text();
+        const input = body ? JSON.parse(body) : null;
+        return json(await intakes.completeUpload(upload[1]!, input?.pdfPages));
+      }
       if (path === "/api/intakes" && method === "GET")
         return json(await intakes.list());
       if (path === "/api/intakes" && method === "POST") {
@@ -391,7 +394,14 @@ async function handleApiResponse(
         const files = form.getAll("pages");
         if (files.some((f) => !(f instanceof File)))
           throw new AppError("Choose invoice photos");
-        return json(await intakes.create(files as File[]), 201);
+        const pdfPages = form.get("pdfPages");
+        return json(
+          await intakes.create(
+            files as File[],
+            typeof pdfPages === "string" ? JSON.parse(pdfPages) : undefined,
+          ),
+          201,
+        );
       }
       const intake = path.match(
         /^\/api\/intakes\/([^/]+)(?:\/(process|receive|pages)(?:\/([^/]+)(?:\/(original))?)?)?$/,

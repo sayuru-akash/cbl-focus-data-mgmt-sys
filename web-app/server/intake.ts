@@ -27,6 +27,60 @@ import {
   validSoldQuantity,
   validBoxQuantity,
 } from "./intake-validation";
+
+// Browser-extracted PDF text is candidate data. Use it only when the whole
+// invoice reconciles, otherwise let the regular photo reader handle the pages.
+function reconciledPdfPages(input: unknown, count: number) {
+  if (!Array.isArray(input) || input.length !== count) return null;
+  const result = extractedPage.array().max(20).safeParse(input);
+  if (!result.success) return null;
+  const pages = result.data;
+  const first = pages[0];
+  if (
+    !first ||
+    pages.reduce((count, p) => count + p.items.length, 0) > 500 ||
+    pages.some(
+      (p, i) =>
+        p.page !== i + 1 ||
+        p.count !== count ||
+        p.invoice !== first.invoice ||
+        p.tin !== first.tin ||
+        p.supplier !== first.supplier ||
+        p.date !== first.date ||
+        p.rotation !== 0,
+    )
+  )
+    return null;
+  const parsed = pages.map(parseExtractedPage);
+  const totals = (field: "gross" | "discount" | "total") => {
+    const values = new Set(
+      pages.map((p) => p[field]).filter((v) => v !== null),
+    );
+    return values.size === 1 ? [...values][0]! : null;
+  };
+  const draft: IntakeDraft = {
+    supplier: first.supplier,
+    tin: first.tin,
+    number: first.invoice,
+    date: first.date,
+    gross: totals("gross"),
+    discount: totals("discount"),
+    total: totals("total"),
+    headerReviewed: true,
+    pages: parsed.map((p) => ({ ...p.fields, reviewed: true })),
+    // Use a placeholder solely to check all the other fields. The cached data
+    // has no MRP and the normal draft builder leaves each line unreviewed.
+    lines: parsed.flatMap((p) =>
+      p.lines.map((l) => ({ ...l, mrp: 1, reviewed: true })),
+    ),
+  };
+  const validation = draftValidation(draft, count);
+  if (validation.blockers.length || validation.warnings.length) return null;
+  return pages.map((extracted) =>
+    JSON.stringify({ blocks: [], extracted, provider: "pdf-text" }),
+  );
+}
+
 export class Intakes {
   constructor(
     private store: Store,
@@ -144,7 +198,7 @@ export class Intakes {
       })),
     };
   }
-  async completeUpload(id: string) {
+  async completeUpload(id: string, pdfPages?: unknown) {
     if (!this.photos) fail("Photo storage is not configured");
     const session = await this.store.db
       .query("SELECT * FROM photo_uploads WHERE id=?")
@@ -166,7 +220,7 @@ export class Intakes {
         new File([bytes as BlobPart], entry.name, { type: entry.mime }),
       );
     }
-    const intake = await this.create(files);
+    const intake = await this.create(files, pdfPages);
     await this.store.db
       .query("UPDATE photo_uploads SET intake_id=? WHERE id=?")
       .run(intake.id, id);
@@ -284,7 +338,7 @@ export class Intakes {
       mime: original || !r.preview ? r.mime : "image/jpeg",
     };
   }
-  async create(files: File[]) {
+  async create(files: File[], pdfPages?: unknown) {
     if (!files.length || files.length > 20)
       fail("Upload 1 to 20 invoice photos");
     if (files.reduce((s, f) => s + f.size, 0) > 60 * 1024 * 1024)
@@ -314,6 +368,7 @@ export class Intakes {
     }
     if (new Set(uploads.map((f) => f.hash)).size !== uploads.length)
       fail("The same photo was selected twice");
+    const pdfCache = reconciledPdfPages(pdfPages, uploads.length);
     // An exact upload retry returns the existing draft or received invoice.
     const signature = uploads
       .map((f) => f.hash)
@@ -364,7 +419,7 @@ export class Intakes {
         async (f, i) =>
           await this.store.db
             .query(
-              "INSERT INTO intake_pages(id,intake_id,position,filename,mime,hash,raw,object_key) VALUES (?,?,?,?,?,?,?,?)",
+              "INSERT INTO intake_pages(id,intake_id,position,filename,mime,hash,raw,object_key,ocr) VALUES (?,?,?,?,?,?,?,?,?)",
             )
             .run(
               f.id,
@@ -375,6 +430,7 @@ export class Intakes {
               f.hash,
               this.photos ? new Uint8Array() : f.raw,
               this.photos ? `drafts/${id}/${f.id}` : null,
+              pdfCache?.[i] ?? null,
             ),
       );
       if (this.photos)

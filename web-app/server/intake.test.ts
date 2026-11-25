@@ -1,4 +1,5 @@
 import { openTestStore } from "./test-store";
+import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import { Store } from "./store";
 import { Intakes, draftIssues, lineIssues } from "./intake";
@@ -376,6 +377,112 @@ test("photo selection validation rejects duplicates and oversize uploads without
     const created = await intakes.create([photo]);
     expect(created.pages).toHaveLength(1);
     expect((await intakes.create([photo])).id).toBe(created.id);
+  } finally {
+    await store.db.close();
+  }
+});
+
+test("PDF page uploads retain reconciled text for review and send conflicting totals to the photo reader", async () => {
+  const store = await openTestStore();
+  const objects = new Map<string, { bytes: Uint8Array; mime: string }>();
+  const photos = {
+    uploadUrl: async (key: string) => key,
+    downloadUrl: async (key: string) => key,
+    put: async (key: string, bytes: Uint8Array, mime: string) => {
+      objects.set(key, { bytes, mime });
+    },
+    head: async (key: string) => ({
+      size: objects.get(key)?.bytes.length,
+      mime: objects.get(key)?.mime,
+    }),
+    read: async (key: string) => objects.get(key)!.bytes,
+    delete: async (keys: string[]) =>
+      keys.forEach((key) => objects.delete(key)),
+  };
+  let photoCalls = 0;
+  const intakes = new Intakes(store, photos as any, async () => {
+    photoCalls++;
+    throw new Error("Photo reader unavailable");
+  });
+  const first = {
+    supplier: "Example Foods",
+    tin: "123456789",
+    invoice: "PDF-DEMO",
+    document: "",
+    date: "2026-11-01",
+    page: 1,
+    count: 2,
+    rotation: 0,
+    gross: 120,
+    discount: 10,
+    total: null,
+    items: [
+      {
+        code: "DEMO-1",
+        description: "DEMO 30GX6EA",
+        weight: "30G",
+        boxes: 1,
+        sold: 0.5,
+        unit: "DZ",
+        unitPrice: 240,
+        amount: 120,
+      },
+    ],
+  };
+  const last = {
+    ...first,
+    page: 2,
+    items: [],
+    gross: null,
+    discount: null,
+    total: 110,
+  };
+  async function upload(seed: number, pages: unknown) {
+    const files = Array.from({ length: 2 }, (_, i) => {
+      const bytes = new Uint8Array([seed, i]);
+      return {
+        name: `page-${i}.jpg`,
+        mime: "image/jpeg",
+        size: bytes.length,
+        hash: createHash("sha256").update(bytes).digest("hex"),
+        bytes,
+      };
+    });
+    const session = await intakes.prepareUpload({ files });
+    for (const [i, target] of session.files!.entries())
+      await photos.put(target.url, files[i]!.bytes, files[i]!.mime);
+    const created = await intakes.completeUpload(session.id!, pages);
+    expect((await intakes.completeUpload(session.id!)).id).toBe(created.id);
+    return created;
+  }
+  try {
+    await intakes.initialize();
+    const created = await upload(1, [first, last]);
+    expect(created.pages.every((p) => p.processed)).toBe(true);
+    const draft = await intakes.process(created.id);
+    expect(draft.draft.pages[1]?.totalsOnly).toBe(true);
+    expect(draft.draft.lines[0]).toMatchObject({
+      sold: 0.5,
+      packSize: 12,
+      mrp: null,
+      reviewed: false,
+    });
+    expect(draft.draft.headerReviewed).toBe(false);
+    expect(draft.draft.total).toBe(110);
+    expect(photoCalls).toBe(0);
+    expect(
+      (await intakes.page(created.id, created.pages[0]!.id)).url,
+    ).toBeTruthy();
+    const fallback = await upload(2, [first, { ...last, total: 111 }]);
+    expect(fallback.pages.every((p) => !p.processed)).toBe(true);
+    await expect(intakes.process(fallback.id)).rejects.toThrow(
+      "Photo reader unavailable",
+    );
+    expect((await intakes.get(fallback.id)).pages[0]?.error).toBe(
+      "Photo reader unavailable",
+    );
+    expect(photoCalls).toBe(1);
+    expect(await store.products()).toHaveLength(0);
   } finally {
     await store.db.close();
   }
