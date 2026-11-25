@@ -458,7 +458,9 @@ test("PDF page uploads retain reconciled text for review and send conflicting to
   try {
     await intakes.initialize();
     const created = await upload(1, [first, last]);
-    expect(created.pages.every((p) => p.processed)).toBe(true);
+    expect(
+      created.pages.every((p: { processed: boolean }) => p.processed),
+    ).toBe(true);
     const draft = await intakes.process(created.id);
     expect(draft.draft.pages[1]?.totalsOnly).toBe(true);
     expect(draft.draft.lines[0]).toMatchObject({
@@ -474,7 +476,9 @@ test("PDF page uploads retain reconciled text for review and send conflicting to
       (await intakes.page(created.id, created.pages[0]!.id)).url,
     ).toBeTruthy();
     const fallback = await upload(2, [first, { ...last, total: 111 }]);
-    expect(fallback.pages.every((p) => !p.processed)).toBe(true);
+    expect(
+      fallback.pages.every((p: { processed: boolean }) => !p.processed),
+    ).toBe(true);
     await expect(intakes.process(fallback.id)).rejects.toThrow(
       "Photo reader unavailable",
     );
